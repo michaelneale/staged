@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getGitStatus, stageFile, unstageFile, discardFile } from './services/git';
   import type { GitStatus } from './types';
-  import { ask } from '@tauri-apps/plugin-dialog';
+  import HoldToDiscard from './HoldToDiscard.svelte';
 
   export type FileCategory = 'staged' | 'unstaged' | 'untracked';
 
@@ -111,27 +111,42 @@
     }
   }
 
-  async function handleDiscard(event: MouseEvent, file: FileEntry) {
-    event.stopPropagation();
-
-    const confirmed = await ask(
-      `Discard all changes to ${file.path.split('/').pop()}? This cannot be undone.`,
-      {
-        title: 'Discard Changes',
-        kind: 'warning',
-        okLabel: 'Discard',
-        cancelLabel: 'Cancel',
-      }
-    );
-    if (!confirmed) return;
-
+  async function handleDiscard(file: FileEntry) {
     try {
       // If staged, unstage first then discard
       if (file.staged) {
         await unstageFile(file.path);
       }
       await discardFile(file.path);
-      await loadStatus();
+
+      // Get fresh status to find next file
+      const newStatus = await getGitStatus();
+      gitStatus = newStatus;
+
+      // Build new file list to select from
+      const newFiles: FileEntry[] = [];
+      for (const f of newStatus.staged) {
+        newFiles.push({ path: f.path, status: f.status, staged: true, untracked: false });
+      }
+      for (const f of newStatus.unstaged) {
+        if (!newFiles.find((e) => e.path === f.path)) {
+          newFiles.push({ path: f.path, status: f.status, staged: false, untracked: false });
+        }
+      }
+      for (const f of newStatus.untracked) {
+        newFiles.push({ path: f.path, status: f.status, staged: false, untracked: true });
+      }
+      newFiles.sort((a, b) => a.path.localeCompare(b.path));
+
+      // Select first available file
+      if (newFiles.length > 0) {
+        const firstFile = newFiles[0];
+        onFileSelect?.(firstFile.path, getCategory(firstFile));
+      } else {
+        // No files left - clear selection
+        onFileSelect?.('', 'unstaged');
+      }
+
       onStatusChange?.();
     } catch (e) {
       console.error('Failed to discard:', e);
@@ -238,13 +253,12 @@
             <span class="file-dir">{getFileDir(file.path)}</span>
             <span class="file-name">{getFileName(file.path)}</span>
           </span>
-          <button
-            class="discard-btn"
-            onclick={(e) => handleDiscard(e, file)}
-            title={file.untracked ? 'Delete file' : 'Discard changes'}
-          >
-            ×
-          </button>
+          <div class="discard-wrapper">
+            <HoldToDiscard
+              onDiscard={() => handleDiscard(file)}
+              title={file.untracked ? 'Hold to delete' : 'Hold to discard'}
+            />
+          </div>
         </li>
       {/each}
     </ul>
@@ -426,29 +440,13 @@
     color: var(--text-primary);
   }
 
-  .discard-btn {
-    width: 20px;
-    height: 20px;
-    border: none;
-    border-radius: 3px;
-    background: transparent;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    color: var(--text-muted);
+  .discard-wrapper {
     flex-shrink: 0;
     opacity: 0;
     transition: opacity 0.1s ease;
   }
 
-  .file-item:hover .discard-btn {
+  .file-item:hover .discard-wrapper {
     opacity: 1;
-  }
-
-  .discard-btn:hover {
-    background-color: var(--status-deleted);
-    color: white;
   }
 </style>
