@@ -4,26 +4,30 @@ use staged_lib::git::diff::get_file_diff;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    
+
     if args.len() < 2 {
         eprintln!("Usage: inspect_diff <file_path> [staged]");
         eprintln!("  file_path: path to file relative to repo root");
         eprintln!("  staged: 'true' for staged diff, 'false' or omit for unstaged");
         std::process::exit(1);
     }
-    
+
     let file_path = &args[1];
     let staged = args.get(2).map(|s| s == "true").unwrap_or(false);
-    
-    println!("Getting {} diff for: {}", if staged { "staged" } else { "unstaged" }, file_path);
+
+    println!(
+        "Getting {} diff for: {}",
+        if staged { "staged" } else { "unstaged" },
+        file_path
+    );
     println!();
-    
+
     match get_file_diff(None, file_path, staged) {
         Ok(diff) => {
             println!("Status: {}", diff.status);
             println!("Is binary: {}", diff.is_binary);
             println!();
-            
+
             println!("=== BEFORE ({} lines) ===", diff.before.lines.len());
             println!("Path: {:?}", diff.before.path);
             for (i, line) in diff.before.lines.iter().enumerate() {
@@ -32,10 +36,16 @@ fn main() {
                     "added" => "+",
                     _ => " ",
                 };
-                println!("[{:3}] {} {:4} | {}", i, marker, line.lineno, truncate(&line.content, 60));
+                println!(
+                    "[{:3}] {} {:4} | {}",
+                    i,
+                    marker,
+                    line.lineno,
+                    truncate(&line.content, 60)
+                );
             }
             println!();
-            
+
             println!("=== AFTER ({} lines) ===", diff.after.lines.len());
             println!("Path: {:?}", diff.after.path);
             for (i, line) in diff.after.lines.iter().enumerate() {
@@ -44,10 +54,16 @@ fn main() {
                     "added" => "+",
                     _ => " ",
                 };
-                println!("[{:3}] {} {:4} | {}", i, marker, line.lineno, truncate(&line.content, 60));
+                println!(
+                    "[{:3}] {} {:4} | {}",
+                    i,
+                    marker,
+                    line.lineno,
+                    truncate(&line.content, 60)
+                );
             }
             println!();
-            
+
             println!("=== RANGES ({} total) ===", diff.ranges.len());
             for (i, range) in diff.ranges.iter().enumerate() {
                 let kind = if range.changed { "CHANGE" } else { "context" };
