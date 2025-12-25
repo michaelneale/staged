@@ -30,13 +30,14 @@
   --status-renamed: #4fc1ff;
   --status-untracked: #888888;
 
-  --diff-added-bg: #2ea04326;
+  --diff-added-overlay: rgba(110, 118, 129, 0.1);
+  --diff-removed-overlay: rgba(110, 118, 129, 0.1);
+  --diff-added-gutter: rgba(46, 160, 67, 0.25);
+  --diff-removed-gutter: rgba(248, 81, 73, 0.2);
   --diff-added-text: #7ee787;
-  --diff-removed-bg: #f8514926;
   --diff-removed-text: #f85149;
-  --diff-context-bg: #1e1e1e;
-  --diff-empty-bg: #2d2d2d;
   --diff-line-number: #6e7681;
+  --diff-empty-bg: #2d2d2d;
   --diff-header-bg: #2d2d2d;
 
   --ui-accent: #0e639c;

@@ -27,6 +27,7 @@ Frontend calls Rust via Tauri's `invoke()`. All git operations happen in Rust us
 - **Stateless**: Git is the state. All Rust functions are pure - they discover the repo fresh each call.
 - **Thin commands**: Tauri commands in `lib.rs` are one-liner wrappers around `git::*` functions.
 - **Pure git module**: `src-tauri/src/git/` has no Tauri dependency - just git2 + serde.
+- **Rebuildable features**: Design features as self-contained modules with clear boundaries and minimal tendrils into the rest of the codebase. If a feature needs to be completely rewritten, it should be possible to delete and rebuild it without surgery across multiple files. See `refresh.rs` as an example.
 
 ### Theming
 

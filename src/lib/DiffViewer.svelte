@@ -1,5 +1,14 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { FileDiff } from './types';
+  import {
+    initHighlighter,
+    highlightLine,
+    detectLanguage,
+    prepareLanguage,
+    getTheme,
+    type Token,
+  } from './services/highlighter';
 
   interface Props {
     diff: FileDiff | null;
@@ -10,18 +19,37 @@
   let leftPane: HTMLDivElement | null = $state(null);
   let rightPane: HTMLDivElement | null = $state(null);
   let isSyncing = false;
+  let highlighterReady = $state(false);
+  let languageReady = $state(false);
+  let themeBg = $state('#1e1e1e');
 
-  function getLineClass(type: string): string {
-    switch (type) {
-      case 'added':
-        return 'line-added';
-      case 'removed':
-        return 'line-removed';
-      case 'empty':
-        return 'line-empty';
-      default:
-        return 'line-context';
+  // Detect language from file path
+  let language = $derived(diff ? detectLanguage(diff.path) : null);
+
+  onMount(async () => {
+    await initHighlighter('github-dark');
+    const theme = getTheme();
+    if (theme) {
+      themeBg = theme.bg;
     }
+    highlighterReady = true;
+  });
+
+  // Load language when file changes
+  $effect(() => {
+    if (highlighterReady && diff) {
+      languageReady = false;
+      prepareLanguage(diff.path).then((ready) => {
+        languageReady = ready;
+      });
+    }
+  });
+
+  function getTokens(content: string): Token[] {
+    if (!highlighterReady || !languageReady) {
+      return [{ content, color: '#d4d4d4' }];
+    }
+    return highlightLine(content, language);
   }
 
   function formatLineNumber(num: number | null): string {
@@ -73,13 +101,29 @@
     </div>
 
     <div class="diff-content">
+      <!-- Left pane: Original (only removed lines get overlay) -->
       <div class="diff-pane left-pane">
         <div class="pane-header">Original</div>
-        <div class="code-container" bind:this={leftPane} onscroll={handleLeftScroll}>
+        <div
+          class="code-container"
+          bind:this={leftPane}
+          onscroll={handleLeftScroll}
+          style="background-color: {themeBg}"
+        >
           {#each diff.old_content as line}
-            <div class="line {getLineClass(line.line_type)}">
-              <span class="line-number">{formatLineNumber(line.old_lineno)}</span>
-              <span class="line-content">{line.content}</span>
+            <div
+              class="line"
+              class:line-removed={line.line_type === 'removed'}
+              class:line-empty={line.line_type === 'empty'}
+            >
+              <span class="line-number" class:gutter-removed={line.line_type === 'removed'}>
+                {formatLineNumber(line.old_lineno)}
+              </span>
+              <span class="line-content" class:content-removed={line.line_type === 'removed'}>
+                {#each getTokens(line.content) as token}
+                  <span style="color: {token.color}">{token.content}</span>
+                {/each}
+              </span>
             </div>
           {/each}
           {#if diff.old_content.length === 0}
@@ -88,13 +132,29 @@
         </div>
       </div>
 
+      <!-- Right pane: Modified (only added lines get overlay) -->
       <div class="diff-pane right-pane">
         <div class="pane-header">Modified</div>
-        <div class="code-container" bind:this={rightPane} onscroll={handleRightScroll}>
+        <div
+          class="code-container"
+          bind:this={rightPane}
+          onscroll={handleRightScroll}
+          style="background-color: {themeBg}"
+        >
           {#each diff.new_content as line}
-            <div class="line {getLineClass(line.line_type)}">
-              <span class="line-number">{formatLineNumber(line.new_lineno)}</span>
-              <span class="line-content">{line.content}</span>
+            <div
+              class="line"
+              class:line-added={line.line_type === 'added'}
+              class:line-empty={line.line_type === 'empty'}
+            >
+              <span class="line-number" class:gutter-added={line.line_type === 'added'}>
+                {formatLineNumber(line.new_lineno)}
+              </span>
+              <span class="line-content" class:content-added={line.line_type === 'added'}>
+                {#each getTokens(line.content) as token}
+                  <span style="color: {token.color}">{token.content}</span>
+                {/each}
+              </span>
             </div>
           {/each}
           {#if diff.new_content.length === 0}
@@ -194,65 +254,41 @@
     min-height: 20px;
   }
 
+  /* Line number (gutter) styling */
   .line-number {
     width: 50px;
     padding: 0 12px;
     text-align: right;
     color: var(--diff-line-number);
-    background-color: var(--diff-context-bg);
     user-select: none;
     flex-shrink: 0;
   }
 
+  .gutter-added {
+    background-color: var(--diff-added-gutter);
+    color: var(--diff-added-text);
+  }
+
+  .gutter-removed {
+    background-color: var(--diff-removed-gutter);
+    color: var(--diff-removed-text);
+  }
+
+  /* Line content styling */
   .line-content {
     flex: 1;
     padding: 0 12px;
     white-space: pre;
   }
 
-  .line-context {
-    background-color: var(--diff-context-bg);
+  /* Overlay tints for diff highlighting */
+  .content-added {
+    background-color: var(--diff-added-overlay);
   }
 
-  .line-context .line-content {
-    background-color: var(--diff-context-bg);
+  .content-removed {
+    background-color: var(--diff-removed-overlay);
   }
 
-  .line-added {
-    background-color: var(--diff-added-bg);
-  }
-
-  .line-added .line-number {
-    background-color: var(--diff-added-bg);
-    color: var(--diff-added-text);
-  }
-
-  .line-added .line-content {
-    background-color: var(--diff-added-bg);
-  }
-
-  .line-removed {
-    background-color: var(--diff-removed-bg);
-  }
-
-  .line-removed .line-number {
-    background-color: var(--diff-removed-bg);
-    color: var(--diff-removed-text);
-  }
-
-  .line-removed .line-content {
-    background-color: var(--diff-removed-bg);
-  }
-
-  .line-empty {
-    background-color: var(--diff-empty-bg);
-  }
-
-  .line-empty .line-number {
-    background-color: var(--diff-empty-bg);
-  }
-
-  .line-empty .line-content {
-    background-color: var(--diff-empty-bg);
-  }
+  /* Empty lines (padding for alignment) - no special styling, inherits theme bg */
 </style>

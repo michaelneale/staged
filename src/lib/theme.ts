@@ -46,13 +46,22 @@ export interface Theme {
 
   // Diff viewer colors
   diff: {
-    addedBg: string; // Background for added lines
-    addedText: string; // Text/line numbers for added
-    removedBg: string; // Background for removed lines
-    removedText: string; // Text/line numbers for removed
-    contextBg: string; // Background for context lines
+    // Overlay tints - applied on TOP of syntax theme background
+    // Only removed lines (left pane) and added lines (right pane) get overlays
+    addedOverlay: string; // Tint for added lines (right pane)
+    removedOverlay: string; // Tint for removed lines (left pane)
+
+    // Gutter (line number column) backgrounds
+    addedGutter: string; // Gutter bg for added lines
+    removedGutter: string; // Gutter bg for removed lines
+
+    // Text colors
+    addedText: string; // Line number text for added
+    removedText: string; // Line number text for removed
+    lineNumber: string; // Default line number text
+
+    // Other
     emptyBg: string; // Background for empty/padding lines
-    lineNumber: string; // Line number text
     headerBg: string; // Diff header background
   };
 
@@ -119,13 +128,22 @@ export const darkTheme: Theme = {
   },
 
   diff: {
-    addedBg: '#2ea04326',
+    // Overlay tints - transparent colors layered on syntax theme background
+    // Both use gray - the gutter colors provide the add/remove distinction
+    addedOverlay: 'rgba(110, 118, 129, 0.10)',
+    removedOverlay: 'rgba(110, 118, 129, 0.10)',
+
+    // Gutter backgrounds - green for added, red for removed
+    addedGutter: 'rgba(46, 160, 67, 0.25)',
+    removedGutter: 'rgba(248, 81, 73, 0.20)',
+
+    // Text colors
     addedText: '#7ee787',
-    removedBg: '#f8514926',
     removedText: '#f85149',
-    contextBg: '#1e1e1e',
-    emptyBg: '#2d2d2d',
     lineNumber: '#6e7681',
+
+    // Other
+    emptyBg: '#2d2d2d',
     headerBg: '#2d2d2d',
   },
 
@@ -187,13 +205,14 @@ export function themeToCssVars(t: Theme): string {
     --status-renamed: ${t.status.renamed};
     --status-untracked: ${t.status.untracked};
 
-    --diff-added-bg: ${t.diff.addedBg};
+    --diff-added-overlay: ${t.diff.addedOverlay};
+    --diff-removed-overlay: ${t.diff.removedOverlay};
+    --diff-added-gutter: ${t.diff.addedGutter};
+    --diff-removed-gutter: ${t.diff.removedGutter};
     --diff-added-text: ${t.diff.addedText};
-    --diff-removed-bg: ${t.diff.removedBg};
     --diff-removed-text: ${t.diff.removedText};
-    --diff-context-bg: ${t.diff.contextBg};
-    --diff-empty-bg: ${t.diff.emptyBg};
     --diff-line-number: ${t.diff.lineNumber};
+    --diff-empty-bg: ${t.diff.emptyBg};
     --diff-header-bg: ${t.diff.headerBg};
 
     --ui-accent: ${t.ui.accent};
