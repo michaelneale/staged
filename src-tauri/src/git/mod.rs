@@ -5,6 +5,7 @@
 
 mod commit;
 mod diff;
+pub mod provider;
 mod repo;
 mod staging;
 mod status;
@@ -14,6 +15,7 @@ use serde::{Deserialize, Serialize};
 // Re-export public types (used by Tauri commands)
 pub use commit::CommitResult;
 pub use diff::FileDiff;
+pub use provider::AdaptiveProvider;
 pub use status::GitStatus;
 
 // Re-export public functions (used by Tauri commands)

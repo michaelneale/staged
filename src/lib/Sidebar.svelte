@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getGitStatus, stageFile, unstageFile, discardFile } from './services/git';
+  import { forceRefresh } from './services/statusEvents';
   import type { GitStatus } from './types';
   import HoldToDiscard from './HoldToDiscard.svelte';
 
@@ -16,14 +17,25 @@
   interface Props {
     onFileSelect?: (path: string, category: FileCategory) => void;
     onStatusChange?: () => void;
+    onRepoLoaded?: (repoPath: string) => void;
     selectedFile?: string | null;
   }
 
-  let { onFileSelect, onStatusChange, selectedFile = null }: Props = $props();
+  let { onFileSelect, onStatusChange, onRepoLoaded, selectedFile = null }: Props = $props();
 
   let gitStatus: GitStatus | null = $state(null);
   let error: string | null = $state(null);
   let loading = $state(true);
+
+  /**
+   * Set status from external source (e.g., watcher events).
+   * This is the primary way status gets updated when auto-refresh is active.
+   */
+  export function setStatus(status: GitStatus) {
+    gitStatus = status;
+    loading = false;
+    error = null;
+  }
 
   // Unified file list - combines all categories, sorted by path
   let files = $derived.by(() => {
@@ -66,6 +78,12 @@
     error = null;
     try {
       gitStatus = await getGitStatus();
+
+      // Notify parent of repo path so watcher can be started
+      if (gitStatus?.repo_path) {
+        onRepoLoaded?.(gitStatus.repo_path);
+      }
+
       // Auto-select first file if none selected
       if (!selectedFile && gitStatus && onFileSelect) {
         const firstFile = files[0];

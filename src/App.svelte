@@ -1,9 +1,16 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import Sidebar, { type FileCategory } from './lib/Sidebar.svelte';
   import DiffViewer from './lib/DiffViewer.svelte';
   import CommitPanel from './lib/CommitPanel.svelte';
   import { getFileDiff, getUntrackedFileDiff } from './lib/services/git';
-  import type { FileDiff } from './lib/types';
+  import {
+    subscribeToStatusEvents,
+    startWatching,
+    stopWatching,
+    type Unsubscribe,
+  } from './lib/services/statusEvents';
+  import type { FileDiff, GitStatus } from './lib/types';
 
   let selectedFile: string | null = $state(null);
   let selectedCategory: FileCategory | null = $state(null);
@@ -12,6 +19,50 @@
   let diffError: string | null = $state(null);
   let sidebarRef: Sidebar | null = $state(null);
   let commitPanelRef: CommitPanel | null = $state(null);
+
+  // Watcher cleanup function
+  let unsubscribe: Unsubscribe | null = null;
+
+  // Current repo path (for watcher)
+  let currentRepoPath: string | null = $state(null);
+
+  onMount(async () => {
+    // Subscribe to status events from the backend
+    unsubscribe = await subscribeToStatusEvents(
+      // On status update - forward to sidebar
+      (status: GitStatus) => {
+        sidebarRef?.setStatus(status);
+      },
+      // On slow repo detected (optional one-time notification)
+      () => {
+        console.log(
+          'Slow repository detected. Consider enabling git fsmonitor: git config core.fsmonitor true'
+        );
+        // Could show a toast/notification here in the future
+      }
+    );
+  });
+
+  onDestroy(() => {
+    // Clean up watcher and event listeners
+    unsubscribe?.();
+    stopWatching().catch(() => {
+      // Ignore errors on cleanup
+    });
+  });
+
+  // Called by Sidebar when it loads a repo
+  async function handleRepoLoaded(repoPath: string) {
+    if (repoPath && repoPath !== currentRepoPath) {
+      currentRepoPath = repoPath;
+      try {
+        await startWatching(repoPath);
+        console.log('Started watching:', repoPath);
+      } catch (e) {
+        console.error('Failed to start watcher:', e);
+      }
+    }
+  }
 
   async function handleFileSelect(path: string, category: FileCategory) {
     selectedFile = path;
@@ -74,6 +125,7 @@
         bind:this={sidebarRef}
         onFileSelect={handleFileSelect}
         onStatusChange={handleStatusChange}
+        onRepoLoaded={handleRepoLoaded}
         {selectedFile}
       />
     </aside>

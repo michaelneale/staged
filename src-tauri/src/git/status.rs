@@ -5,12 +5,14 @@ use super::GitError;
 use git2::{Status, StatusOptions};
 use serde::{Deserialize, Serialize};
 
+/// Status of a single file in the repository.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileStatus {
     pub path: String,
     pub status: String,
 }
 
+/// Full git status for a repository.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitStatus {
     pub staged: Vec<FileStatus>,

@@ -1,6 +1,12 @@
 mod git;
+mod refresh;
+mod watcher;
 
 use git::{CommitResult, FileDiff, GitStatus};
+use refresh::RefreshController;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use tauri::{Manager, State};
 
 // =============================================================================
 // Tauri Commands
@@ -74,6 +80,45 @@ fn amend_commit(repo_path: Option<String>, message: String) -> Result<CommitResu
 }
 
 // =============================================================================
+// Watcher Commands
+// =============================================================================
+
+/// State container for the refresh controller.
+/// Wrapped in Option because it's created during setup with the AppHandle.
+struct RefreshControllerState(Mutex<Option<RefreshController>>);
+
+#[tauri::command]
+fn start_watching(repo_path: String, state: State<RefreshControllerState>) -> Result<(), String> {
+    let controller = state.0.lock().unwrap();
+    if let Some(ref ctrl) = *controller {
+        ctrl.start(PathBuf::from(repo_path))
+    } else {
+        Err("Refresh controller not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+fn stop_watching(state: State<RefreshControllerState>) -> Result<(), String> {
+    let controller = state.0.lock().unwrap();
+    if let Some(ref ctrl) = *controller {
+        ctrl.stop();
+        Ok(())
+    } else {
+        Err("Refresh controller not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+fn force_refresh(state: State<RefreshControllerState>) -> Result<GitStatus, String> {
+    let controller = state.0.lock().unwrap();
+    if let Some(ref ctrl) = *controller {
+        ctrl.force_refresh()
+    } else {
+        Err("Refresh controller not initialized".to_string())
+    }
+}
+
+// =============================================================================
 // Tauri App Setup
 // =============================================================================
 
@@ -81,7 +126,13 @@ fn amend_commit(repo_path: Option<String>, message: String) -> Result<CommitResu
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(RefreshControllerState(Mutex::new(None)))
         .setup(|app| {
+            // Initialize the refresh controller with the app handle
+            let controller = RefreshController::new(app.handle().clone());
+            let state: State<RefreshControllerState> = app.state();
+            *state.0.lock().unwrap() = Some(controller);
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -103,7 +154,10 @@ pub fn run() {
             unstage_all,
             get_last_commit_message,
             create_commit,
-            amend_commit
+            amend_commit,
+            start_watching,
+            stop_watching,
+            force_refresh
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
