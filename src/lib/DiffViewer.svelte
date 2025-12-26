@@ -441,7 +441,7 @@
     right: 0;
     height: 1px;
     background-color: var(--diff-line-number);
-    opacity: 0.5;
+    opacity: 0.7;
   }
 
   .line.range-end::after {
@@ -452,7 +452,7 @@
     right: 0;
     height: 1px;
     background-color: var(--diff-line-number);
-    opacity: 0.5;
+    opacity: 0.7;
   }
 
   .empty-state,
