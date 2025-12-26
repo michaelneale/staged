@@ -51,10 +51,6 @@ export interface Theme {
     addedOverlay: string; // Tint for added lines (right pane)
     removedOverlay: string; // Tint for removed lines (left pane)
 
-    // Gutter (line number column) backgrounds
-    addedGutter: string; // Gutter bg for added lines
-    removedGutter: string; // Gutter bg for removed lines
-
     // Text colors
     addedText: string; // Line number text for added
     removedText: string; // Line number text for removed
@@ -133,10 +129,6 @@ export const darkTheme: Theme = {
     addedOverlay: 'rgba(110, 118, 129, 0.10)',
     removedOverlay: 'rgba(110, 118, 129, 0.10)',
 
-    // Gutter backgrounds - green for added, red for removed
-    addedGutter: 'rgba(46, 160, 67, 0.25)',
-    removedGutter: 'rgba(248, 81, 73, 0.20)',
-
     // Text colors
     addedText: '#7ee787',
     removedText: '#f85149',
@@ -207,8 +199,6 @@ export function themeToCssVars(t: Theme): string {
 
     --diff-added-overlay: ${t.diff.addedOverlay};
     --diff-removed-overlay: ${t.diff.removedOverlay};
-    --diff-added-gutter: ${t.diff.addedGutter};
-    --diff-removed-gutter: ${t.diff.removedGutter};
     --diff-added-text: ${t.diff.addedText};
     --diff-removed-text: ${t.diff.removedText};
     --diff-line-number: ${t.diff.lineNumber};

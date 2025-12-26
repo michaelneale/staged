@@ -32,8 +32,6 @@
 
   --diff-added-overlay: rgba(110, 118, 129, 0.1);
   --diff-removed-overlay: rgba(110, 118, 129, 0.1);
-  --diff-added-gutter: rgba(46, 160, 67, 0.25);
-  --diff-removed-gutter: rgba(248, 81, 73, 0.2);
   --diff-added-text: #7ee787;
   --diff-removed-text: #f85149;
   --diff-line-number: #6e7681;
