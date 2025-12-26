@@ -80,16 +80,15 @@ impl WatcherManager for NotifyWatcher {
 
         // Debouncer timing policy:
         // - timeout (500ms): fire after 500ms of quiet, coalescing rapid changes
-        // - max_wait (2000ms): guarantee an update even during continuous activity
+        // - tick_rate: how often the debouncer checks for expired events (None = timeout/4)
         //
         // Combined with backend throttle (refresh.rs), the behavior is:
         // - Single file save: ~500ms response time
         // - Burst of saves: coalesced, fires 500ms after last change
-        // - Continuous activity: fires every 2s max
         // - Slow repos: backend adaptive throttle (1.5× duration) adds protection
         let mut debouncer = new_debouncer(
             Duration::from_millis(500),
-            Some(Duration::from_millis(2000)),
+            None, // Use default tick_rate (timeout / 4 = 125ms)
             move |result: Result<Vec<DebouncedEvent>, Vec<notify::Error>>| {
                 match result {
                     Ok(events) => {
