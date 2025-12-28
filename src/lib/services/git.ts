@@ -28,6 +28,29 @@ export async function getUntrackedFileDiff(filePath: string, repoPath?: string):
   });
 }
 
+/**
+ * Get diff for a file between two refs.
+ * This is the primary diff function for the review model.
+ *
+ * @param base - Base ref (branch name, SHA, "HEAD", etc.)
+ * @param head - Head ref (same as base, or "@" for working tree)
+ * @param filePath - Path to file relative to repo root
+ * @param repoPath - Optional path to repository
+ */
+export async function getRefDiff(
+  base: string,
+  head: string,
+  filePath: string,
+  repoPath?: string
+): Promise<FileDiff> {
+  return invoke<FileDiff>('get_ref_diff', {
+    repoPath: repoPath ?? null,
+    base,
+    head,
+    filePath,
+  });
+}
+
 // Staging operations
 
 export async function stageFile(filePath: string, repoPath?: string): Promise<void> {

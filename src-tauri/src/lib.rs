@@ -41,6 +41,20 @@ fn get_untracked_file_diff(
     git::get_untracked_file_diff(repo_path.as_deref(), &file_path).map_err(|e| e.message)
 }
 
+/// Get diff for a file between two refs.
+///
+/// This is the primary diff function for the review model. Compares any two
+/// refs (branches, tags, SHAs) or "@" for the working tree.
+#[tauri::command]
+fn get_ref_diff(
+    repo_path: Option<String>,
+    base: String,
+    head: String,
+    file_path: String,
+) -> Result<FileDiff, String> {
+    git::get_ref_diff(repo_path.as_deref(), &base, &head, &file_path).map_err(|e| e.message)
+}
+
 #[tauri::command]
 fn stage_file(repo_path: Option<String>, file_path: String) -> Result<(), String> {
     git::stage_file(repo_path.as_deref(), &file_path).map_err(|e| e.message)
@@ -245,6 +259,7 @@ pub fn run() {
             open_repository,
             get_file_diff,
             get_untracked_file_diff,
+            get_ref_diff,
             stage_file,
             unstage_file,
             discard_file,

@@ -26,6 +26,7 @@
   import { getReview, markReviewed, unmarkReviewed } from './services/review';
   import type { GitStatus, Review } from './types';
 
+  /** File category for staging operations (not for diff selection) */
   export type FileCategory = 'staged' | 'unstaged' | 'untracked';
 
   interface FileEntry {
@@ -38,9 +39,13 @@
   }
 
   interface Props {
-    onFileSelect?: (path: string, category: FileCategory) => void;
+    /** Called when user selects a file to view */
+    onFileSelect?: (path: string) => void;
+    /** Called when staging/unstaging/discarding changes */
     onStatusChange?: () => void;
+    /** Called when repo is loaded */
     onRepoLoaded?: (repoPath: string) => void;
+    /** Currently selected file path */
     selectedFile?: string | null;
   }
 
@@ -150,8 +155,14 @@
   });
 
   export async function loadStatus() {
-    loading = true;
+    // Only show loading state on initial load (no existing data)
+    // On refresh, keep showing old data until new data arrives
+    const isInitialLoad = gitStatus === null;
+    if (isInitialLoad) {
+      loading = true;
+    }
     error = null;
+
     try {
       gitStatus = await getGitStatus();
 
@@ -178,11 +189,7 @@
   }
 
   function selectFile(file: FileEntry) {
-    if (file.hasUnstaged) {
-      onFileSelect?.(file.path, file.status === 'untracked' ? 'untracked' : 'unstaged');
-    } else if (file.hasStaged) {
-      onFileSelect?.(file.path, 'staged');
-    }
+    onFileSelect?.(file.path);
   }
 
   async function toggleReviewed(event: MouseEvent, file: FileEntry) {
@@ -246,7 +253,8 @@
           selectFile(nextFile);
         }
       } else {
-        onFileSelect?.('', 'unstaged');
+        // No files left - clear selection
+        onFileSelect?.('');
       }
 
       onStatusChange?.();

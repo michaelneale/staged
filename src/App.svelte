@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import Sidebar, { type FileCategory } from './lib/Sidebar.svelte';
+  import Sidebar from './lib/Sidebar.svelte';
   import DiffViewer from './lib/DiffViewer.svelte';
   import CommitPanel from './lib/CommitPanel.svelte';
-  import { getFileDiff, getUntrackedFileDiff } from './lib/services/git';
+  import { getRefDiff } from './lib/services/git';
   import {
     subscribeToStatusEvents,
     startWatching,
@@ -76,8 +76,11 @@
     }
   }
 
+  // Current diff being viewed - hardcoded for now, TSK-754 will make this selectable
+  const diffBase = 'main';
+  const diffHead = '@';
+
   let selectedFile: string | null = $state(null);
-  let selectedCategory: FileCategory | null = $state(null);
   let currentDiff: FileDiff | null = $state(null);
   let diffError: string | null = $state(null);
   let sidebarRef: Sidebar | null = $state(null);
@@ -93,31 +96,19 @@
   let currentRepoPath: string | null = $state(null);
 
   /**
-   * Check if a file path exists in the given status, and return its category.
-   * Returns null if the file is not found in any category.
+   * Check if a file path exists in the given status (any category).
    */
-  function findFileInStatus(
-    status: GitStatus,
-    path: string
-  ): { category: FileCategory; found: boolean } | null {
-    // Check staged
-    if (status.staged.some((f) => f.path === path)) {
-      return { category: 'staged', found: true };
-    }
-    // Check unstaged
-    if (status.unstaged.some((f) => f.path === path)) {
-      return { category: 'unstaged', found: true };
-    }
-    // Check untracked
-    if (status.untracked.some((f) => f.path === path)) {
-      return { category: 'untracked', found: true };
-    }
-    return null;
+  function fileExistsInStatus(status: GitStatus, path: string): boolean {
+    return (
+      status.staged.some((f) => f.path === path) ||
+      status.unstaged.some((f) => f.path === path) ||
+      status.untracked.some((f) => f.path === path)
+    );
   }
 
   /**
    * Handle status updates from the file watcher.
-   * Updates sidebar and refreshes/clears the diff viewer as needed.
+   * Only relevant when diffHead is "@" (working tree).
    */
   async function handleStatusUpdate(status: GitStatus) {
     // Forward to sidebar
@@ -126,22 +117,20 @@
     // Refresh commit panel
     commitPanelRef?.refresh();
 
-    // Check if currently selected file still exists in the new status
-    if (selectedFile && selectedCategory) {
-      const fileInfo = findFileInStatus(status, selectedFile);
+    // Only reload diff if we're viewing the working tree
+    if (diffHead !== '@') {
+      return;
+    }
 
-      if (!fileInfo) {
+    // Check if currently selected file still exists
+    if (selectedFile) {
+      if (!fileExistsInStatus(status, selectedFile)) {
         // File no longer has changes - clear the diff
         currentDiff = null;
         selectedFile = null;
-        selectedCategory = null;
-      } else if (fileInfo.category !== selectedCategory) {
-        // File moved categories (e.g., staged -> unstaged) - reload diff
-        selectedCategory = fileInfo.category;
-        await loadDiff(selectedFile, selectedCategory);
       } else {
-        // File still in same category - reload diff in case content changed
-        await loadDiff(selectedFile, selectedCategory);
+        // File still has changes - reload diff (content may have changed)
+        await loadDiff(selectedFile);
       }
     }
   }
@@ -191,13 +180,12 @@
     }
   }
 
-  async function handleFileSelect(path: string, category: FileCategory) {
+  async function handleFileSelect(path: string) {
     selectedFile = path;
-    selectedCategory = category;
-    await loadDiff(path, category);
+    await loadDiff(path);
   }
 
-  async function loadDiff(path: string, category: FileCategory) {
+  async function loadDiff(path: string) {
     // Skip if already loading this exact path (prevents duplicate calls)
     if (loadingPath === path) {
       return;
@@ -207,12 +195,7 @@
     diffError = null;
 
     try {
-      let diff: FileDiff;
-      if (category === 'untracked') {
-        diff = await getUntrackedFileDiff(path);
-      } else {
-        diff = await getFileDiff(path, category === 'staged');
-      }
+      const diff = await getRefDiff(diffBase, diffHead, path);
 
       // Only update if this is still the file we want
       if (loadingPath === path) {
@@ -222,12 +205,11 @@
       if (loadingPath === path) {
         const errorMsg = e instanceof Error ? e.message : String(e);
 
-        // "File not found in diff" means the file no longer has changes
+        // "File not found" means the file no longer has changes
         // (e.g., all changes were discarded). Clear selection gracefully.
-        if (errorMsg.includes('File not found in diff')) {
+        if (errorMsg.includes('not found')) {
           currentDiff = null;
           selectedFile = null;
-          selectedCategory = null;
         } else {
           // Real error - show it
           diffError = errorMsg;
@@ -246,10 +228,9 @@
     // Sidebar staged/unstaged/discarded a file - refresh commit panel
     commitPanelRef?.refresh();
 
-    // If the selected file was discarded, clear the diff
-    // The sidebar will handle re-selecting if needed
-    if (selectedFile && selectedCategory) {
-      await loadDiff(selectedFile, selectedCategory);
+    // Reload diff if file still selected (content may have changed from discard)
+    if (selectedFile) {
+      await loadDiff(selectedFile);
     }
   }
 
@@ -257,10 +238,9 @@
     // Refresh sidebar and commit panel after successful commit
     await sidebarRef?.loadStatus();
     commitPanelRef?.refresh();
-    // Clear the diff view since staged files are now committed
+    // Clear the diff view since files may have changed
     currentDiff = null;
     selectedFile = null;
-    selectedCategory = null;
   }
 </script>
 
@@ -276,7 +256,6 @@
         <DiffViewer
           diff={currentDiff}
           filePath={selectedFile}
-          category={selectedCategory}
           {sizeBase}
           onHunkAction={handleStatusChange}
         />

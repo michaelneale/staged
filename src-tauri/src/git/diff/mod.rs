@@ -8,6 +8,10 @@
 //! ## Module Structure
 //! - `parse`: Extracts hunks from git2's callback-based diff API
 //! - `side_by_side`: Transforms hunks into aligned pane content with ranges
+//!
+//! ## Diff Types
+//! - `get_file_diff`: Legacy staged/unstaged diff (HEAD→index or index→workdir)
+//! - `get_ref_diff`: Ref-based diff (any ref → any ref or "@" for workdir)
 
 mod parse;
 mod side_by_side;
@@ -16,6 +20,9 @@ use super::repo::find_repo;
 use super::GitError;
 use git2::{DiffOptions, Repository};
 use serde::{Deserialize, Serialize};
+
+/// Special ref representing the working tree (uncommitted changes).
+pub const WORKING_TREE_REF: &str = "@";
 
 // Re-export for external use
 pub use parse::DiffHunk;
@@ -371,4 +378,185 @@ fn get_content_from_workdir(
 /// Check if bytes appear to be binary content (contains null bytes).
 fn is_binary_content(bytes: &[u8]) -> bool {
     bytes.contains(&0)
+}
+
+// =============================================================================
+// Ref-based Diff (base..head)
+// =============================================================================
+
+/// Get diff for a file between two refs.
+///
+/// This is the primary diff function for the review model. It compares any two
+/// refs (branches, tags, SHAs) or the working tree ("@").
+///
+/// # Arguments
+/// * `repo_path` - Optional path to repository (uses discovery if None)
+/// * `base` - Base ref (branch name, SHA, "HEAD", etc.)
+/// * `head` - Head ref (same as base, or "@" for working tree)
+/// * `file_path` - Path to file relative to repo root
+///
+/// # Examples
+/// * `get_ref_diff(None, "main", "@", "src/lib.rs")` - Changes from main to working tree
+/// * `get_ref_diff(None, "HEAD~1", "HEAD", "src/lib.rs")` - Last commit's changes
+/// * `get_ref_diff(None, "v1.0", "v2.0", "src/lib.rs")` - Changes between tags
+pub fn get_ref_diff(
+    repo_path: Option<&str>,
+    base: &str,
+    head: &str,
+    file_path: &str,
+) -> Result<FileDiff, GitError> {
+    let repo = find_repo(repo_path)?;
+
+    // Get content from both sides
+    let before_content = get_content_from_ref(&repo, base, file_path)?;
+    let after_content = get_content_from_ref(&repo, head, file_path)?;
+
+    // Handle case where file doesn't exist on either side
+    if before_content.is_none() && after_content.is_none() {
+        return Err(GitError {
+            message: format!(
+                "File '{}' not found in either {} or {}",
+                file_path, base, head
+            ),
+        });
+    }
+
+    // Determine status based on presence in each ref
+    let status = match (&before_content, &after_content) {
+        (None, Some(_)) => "added",
+        (Some(_), None) => "deleted",
+        (Some(_), Some(_)) => "modified",
+        (None, None) => unreachable!(), // Handled above
+    };
+
+    // Check for binary content
+    if let Some(ref content) = before_content {
+        if is_binary_content(content.as_bytes()) {
+            return Ok(FileDiff {
+                status: status.to_string(),
+                is_binary: true,
+                hunks: vec![],
+                before: DiffSide {
+                    path: Some(file_path.to_string()),
+                    lines: vec![],
+                },
+                after: DiffSide {
+                    path: Some(file_path.to_string()),
+                    lines: vec![],
+                },
+                ranges: vec![],
+            });
+        }
+    }
+    if let Some(ref content) = after_content {
+        if is_binary_content(content.as_bytes()) {
+            return Ok(FileDiff {
+                status: status.to_string(),
+                is_binary: true,
+                hunks: vec![],
+                before: DiffSide {
+                    path: Some(file_path.to_string()),
+                    lines: vec![],
+                },
+                after: DiffSide {
+                    path: Some(file_path.to_string()),
+                    lines: vec![],
+                },
+                ranges: vec![],
+            });
+        }
+    }
+
+    // Generate diff using git2
+    let mut diff_opts = DiffOptions::new();
+    diff_opts.pathspec(file_path);
+    diff_opts.context_lines(0);
+
+    let diff = if head == WORKING_TREE_REF {
+        // Diff from base tree to working directory
+        let base_tree = resolve_tree(&repo, base)?;
+        repo.diff_tree_to_workdir(Some(&base_tree), Some(&mut diff_opts))?
+    } else {
+        // Diff between two trees
+        let base_tree = resolve_tree(&repo, base)?;
+        let head_tree = resolve_tree(&repo, head)?;
+        repo.diff_tree_to_tree(Some(&base_tree), Some(&head_tree), Some(&mut diff_opts))?
+    };
+
+    // Parse hunks
+    let parse_result = parse::parse_diff(&diff, file_path)?;
+
+    // Build side-by-side content and ranges
+    let (before_lines, after_lines, ranges) =
+        side_by_side::build(&before_content, &after_content, &parse_result.hunks);
+
+    Ok(FileDiff {
+        status: status.to_string(),
+        is_binary: false,
+        hunks: parse_result.hunks,
+        before: DiffSide {
+            path: if before_content.is_some() {
+                Some(file_path.to_string())
+            } else {
+                None
+            },
+            lines: before_lines,
+        },
+        after: DiffSide {
+            path: if after_content.is_some() {
+                Some(file_path.to_string())
+            } else {
+                None
+            },
+            lines: after_lines,
+        },
+        ranges,
+    })
+}
+
+/// Resolve a ref string to a tree.
+///
+/// Handles branch names, tag names, SHAs, and special refs like HEAD.
+fn resolve_tree<'a>(repo: &'a Repository, ref_str: &str) -> Result<git2::Tree<'a>, GitError> {
+    // Try to resolve as a revision (handles branches, tags, HEAD, SHA, etc.)
+    let obj = repo.revparse_single(ref_str).map_err(|e| GitError {
+        message: format!("Failed to resolve ref '{}': {}", ref_str, e),
+    })?;
+
+    obj.peel_to_tree().map_err(|e| GitError {
+        message: format!("Failed to get tree for '{}': {}", ref_str, e),
+    })
+}
+
+/// Get file content from a ref (branch, tag, SHA, or "@" for working tree).
+fn get_content_from_ref(
+    repo: &Repository,
+    ref_str: &str,
+    file_path: &str,
+) -> Result<Option<String>, GitError> {
+    if ref_str == WORKING_TREE_REF {
+        // Working tree - read from disk
+        get_content_from_workdir(repo, file_path)
+    } else {
+        // Resolve ref to tree and get blob
+        let tree = match resolve_tree(repo, ref_str) {
+            Ok(t) => t,
+            Err(_) => return Ok(None), // Ref doesn't exist
+        };
+
+        let entry = match tree.get_path(std::path::Path::new(file_path)) {
+            Ok(e) => e,
+            Err(_) => return Ok(None), // File doesn't exist in this tree
+        };
+
+        let blob = repo.find_blob(entry.id()).map_err(|e| GitError {
+            message: format!("Failed to get blob: {}", e),
+        })?;
+
+        if blob.is_binary() {
+            return Ok(None);
+        }
+
+        Ok(Some(String::from_utf8_lossy(blob.content()).into_owned()))
+    }
 }
