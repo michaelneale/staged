@@ -1,25 +1,30 @@
 <!--
   Sidebar.svelte - File list with review workflow
   
-  Files needing review appear above the line.
-  Approved files (staged, no unstaged) appear below the line.
-  Hover for approve/discard actions via d-pad overlay.
+  Shows files changed in the current diff (base..head).
+  Files needing review appear above the divider.
+  Reviewed files appear below the divider.
+  Review state comes from the review storage, not git index.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import {
-    Check,
+    MessageSquare,
     CircleFadingArrowUp,
     CircleFadingPlus,
     CircleArrowUp,
     CirclePlus,
     CircleMinus,
     CircleX,
-    X,
+    Plus,
+    Minus,
+    Trash2,
+    Check,
+    RotateCcw,
   } from 'lucide-svelte';
-  import { getGitStatus, stageFile, discardFile } from './services/git';
-  import type { GitStatus } from './types';
-  import HoldToDiscard from './HoldToDiscard.svelte';
+  import { getGitStatus, stageFile, unstageFile, discardFile } from './services/git';
+  import { getReview, markReviewed, unmarkReviewed } from './services/review';
+  import type { GitStatus, Review } from './types';
 
   export type FileCategory = 'staged' | 'unstaged' | 'untracked';
 
@@ -28,6 +33,8 @@
     status: string;
     hasStaged: boolean;
     hasUnstaged: boolean;
+    isReviewed: boolean;
+    commentCount: number;
   }
 
   interface Props {
@@ -40,74 +47,35 @@
   let { onFileSelect, onStatusChange, onRepoLoaded, selectedFile = null }: Props = $props();
 
   let gitStatus: GitStatus | null = $state(null);
+  let review: Review | null = $state(null);
   let error: string | null = $state(null);
   let loading = $state(true);
 
-  // Hover state for d-pad positioning (fixed position in viewport)
-  let hoveredFile: FileEntry | null = $state(null);
-  let dpadStyle: {
-    lineTop: number;
-    lineBottom: number;
-    lineLeft: number;
-    lineRight: number;
-  } | null = $state(null);
-  let hoverTimeout: number | null = null;
+  // Current diff being reviewed - hardcoded for now, TSK-754 will make this selectable
+  // TODO: Make this configurable via diff selector
+  const diffBase = 'main';
+  const diffHead = '@';
 
-  function clearHoverState() {
-    hoveredFile = null;
-    dpadStyle = null;
-  }
-
-  function scheduleClearHover() {
-    // Small delay to allow mouse to reach the button
-    if (hoverTimeout) clearTimeout(hoverTimeout);
-    hoverTimeout = window.setTimeout(() => {
-      clearHoverState();
-      hoverTimeout = null;
-    }, 100);
-  }
-
-  function cancelClearHover() {
-    if (hoverTimeout) {
-      clearTimeout(hoverTimeout);
-      hoverTimeout = null;
-    }
-  }
-
-  function handleMouseEnter(event: MouseEvent, file: FileEntry) {
-    cancelClearHover();
-    const li = event.currentTarget as HTMLElement;
-    if (!li) return;
-
-    const lineRect = li.getBoundingClientRect();
-
-    hoveredFile = file;
-    dpadStyle = {
-      lineTop: lineRect.top,
-      lineBottom: lineRect.bottom,
-      lineLeft: lineRect.left,
-      lineRight: lineRect.right,
-    };
-  }
-
-  function handleMouseLeave() {
-    scheduleClearHover();
-  }
-
-  function handleOverlayMouseLeave() {
-    scheduleClearHover();
-  }
-
-  function handleButtonMouseEnter() {
-    cancelClearHover();
-  }
+  // Context menu state
+  let contextMenu: { x: number; y: number; file: FileEntry } | null = $state(null);
+  let holdingDiscard = $state(false);
+  let discardProgress = $state(0);
+  let discardStartTime: number | null = null;
+  let discardAnimationFrame: number | null = null;
+  const HOLD_DURATION = 700;
 
   /**
-   * Build unified file list from git status.
-   * Each file appears once, with flags for staged/unstaged state.
+   * Build unified file list from git status + review state.
    */
-  function buildFileList(status: GitStatus): FileEntry[] {
+  function buildFileList(status: GitStatus, reviewData: Review | null): FileEntry[] {
     const fileMap = new Map<string, FileEntry>();
+    const reviewedSet = new Set(reviewData?.reviewed || []);
+
+    // Count comments per file
+    const commentCounts = new Map<string, number>();
+    for (const comment of reviewData?.comments || []) {
+      commentCounts.set(comment.file_path, (commentCounts.get(comment.file_path) || 0) + 1);
+    }
 
     // Add staged files
     for (const f of status.staged) {
@@ -116,6 +84,8 @@
         status: f.status,
         hasStaged: true,
         hasUnstaged: false,
+        isReviewed: reviewedSet.has(f.path),
+        commentCount: commentCounts.get(f.path) || 0,
       });
     }
 
@@ -130,21 +100,24 @@
           status: f.status,
           hasStaged: false,
           hasUnstaged: true,
+          isReviewed: reviewedSet.has(f.path),
+          commentCount: commentCounts.get(f.path) || 0,
         });
       }
     }
 
-    // Add untracked files (treated as unstaged)
+    // Add untracked files
     for (const f of status.untracked) {
       fileMap.set(f.path, {
         path: f.path,
         status: f.status,
         hasStaged: false,
         hasUnstaged: true,
+        isReviewed: reviewedSet.has(f.path),
+        commentCount: commentCounts.get(f.path) || 0,
       });
     }
 
-    // Sort by path for stable ordering
     return Array.from(fileMap.values()).sort((a, b) => a.path.localeCompare(b.path));
   }
 
@@ -157,17 +130,23 @@
     error = null;
   }
 
-  let files = $derived(gitStatus ? buildFileList(gitStatus) : []);
-
-  // Split into needs review (has unstaged) and approved (staged only)
-  let needsReview = $derived(files.filter((f) => f.hasUnstaged));
-  let approved = $derived(files.filter((f) => f.hasStaged && !f.hasUnstaged));
-
-  let approvedCount = $derived(approved.length);
+  let files = $derived(gitStatus ? buildFileList(gitStatus, review) : []);
+  let needsReview = $derived(files.filter((f) => !f.isReviewed));
+  let reviewed = $derived(files.filter((f) => f.isReviewed));
+  let reviewedCount = $derived(reviewed.length);
   let totalCount = $derived(files.length);
 
   onMount(() => {
     loadStatus();
+
+    // Close context menu on click outside
+    const handleClickOutside = () => {
+      if (contextMenu) {
+        closeContextMenu();
+      }
+    };
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
   });
 
   export async function loadStatus() {
@@ -176,13 +155,17 @@
     try {
       gitStatus = await getGitStatus();
 
+      // Load review state for current diff
+      review = await getReview(diffBase, diffHead);
+
       if (gitStatus?.repo_path) {
         onRepoLoaded?.(gitStatus.repo_path);
       }
 
       // Auto-select first file if none selected
       if (!selectedFile && gitStatus && onFileSelect) {
-        const firstFile = needsReview[0] || approved[0];
+        const allFiles = buildFileList(gitStatus, review);
+        const firstFile = allFiles.filter((f) => !f.isReviewed)[0] || allFiles[0];
         if (firstFile) {
           selectFile(firstFile);
         }
@@ -194,9 +177,6 @@
     }
   }
 
-  /**
-   * Select a file - shows unstaged diff if available, else staged.
-   */
   function selectFile(file: FileEntry) {
     if (file.hasUnstaged) {
       onFileSelect?.(file.path, file.status === 'untracked' ? 'untracked' : 'unstaged');
@@ -205,37 +185,66 @@
     }
   }
 
-  async function handleApprove(event: MouseEvent, file: FileEntry) {
+  async function toggleReviewed(event: MouseEvent, file: FileEntry) {
     event.stopPropagation();
+    try {
+      if (file.isReviewed) {
+        await unmarkReviewed(diffBase, diffHead, file.path);
+      } else {
+        await markReviewed(diffBase, diffHead, file.path);
+      }
+      // Reload review state
+      review = await getReview(diffBase, diffHead);
+    } catch (e) {
+      console.error('Failed to toggle reviewed:', e);
+    }
+  }
+
+  // Context menu handlers
+  function handleContextMenu(event: MouseEvent, file: FileEntry) {
+    event.preventDefault();
+    event.stopPropagation();
+    contextMenu = { x: event.clientX, y: event.clientY, file };
+  }
+
+  function closeContextMenu() {
+    contextMenu = null;
+    cancelDiscardHold();
+  }
+
+  async function handleStage(file: FileEntry) {
     try {
       await stageFile(file.path);
       await loadStatus();
-      // Keep file selected, view will update
-      const updatedFile = files.find((f) => f.path === file.path);
-      if (updatedFile) {
-        selectFile(updatedFile);
-      }
       onStatusChange?.();
     } catch (e) {
-      console.error('Failed to approve:', e);
+      console.error('Failed to stage:', e);
     }
+    closeContextMenu();
+  }
+
+  async function handleUnstage(file: FileEntry) {
+    try {
+      await unstageFile(file.path);
+      await loadStatus();
+      onStatusChange?.();
+    } catch (e) {
+      console.error('Failed to unstage:', e);
+    }
+    closeContextMenu();
   }
 
   async function handleDiscard(file: FileEntry) {
     try {
       await discardFile(file.path);
+      await loadStatus();
 
-      // Clear hover state since the file may be gone
-      hoveredFile = null;
-      dpadStyle = null;
-
-      const newStatus = await getGitStatus();
-      gitStatus = newStatus;
-
-      const newFiles = buildFileList(newStatus);
-      if (newFiles.length > 0) {
-        const firstFile = newFiles.filter((f) => f.hasUnstaged)[0] || newFiles[0];
-        selectFile(firstFile);
+      // Select next file if available
+      if (files.length > 0) {
+        const nextFile = needsReview[0] || reviewed[0];
+        if (nextFile) {
+          selectFile(nextFile);
+        }
       } else {
         onFileSelect?.('', 'unstaged');
       }
@@ -243,6 +252,38 @@
       onStatusChange?.();
     } catch (e) {
       console.error('Failed to discard:', e);
+    }
+    closeContextMenu();
+  }
+
+  // Hold-to-discard logic for context menu
+  function startDiscardHold() {
+    holdingDiscard = true;
+    discardProgress = 0;
+    discardStartTime = Date.now();
+    discardAnimationFrame = requestAnimationFrame(updateDiscardProgress);
+  }
+
+  function updateDiscardProgress() {
+    if (!discardStartTime || !contextMenu) return;
+
+    const elapsed = Date.now() - discardStartTime;
+    discardProgress = Math.min(elapsed / HOLD_DURATION, 1);
+
+    if (discardProgress >= 1) {
+      handleDiscard(contextMenu.file);
+    } else {
+      discardAnimationFrame = requestAnimationFrame(updateDiscardProgress);
+    }
+  }
+
+  function cancelDiscardHold() {
+    holdingDiscard = false;
+    discardProgress = 0;
+    discardStartTime = null;
+    if (discardAnimationFrame) {
+      cancelAnimationFrame(discardAnimationFrame);
+      discardAnimationFrame = null;
     }
   }
 
@@ -257,17 +298,29 @@
     }
     return '';
   }
+
+  function getDiffLabel(): string {
+    // Human-friendly labels
+    if (diffHead === '@') {
+      return `${diffBase} → current`;
+    }
+    return `${diffBase} → ${diffHead}`;
+  }
 </script>
 
 <div class="sidebar-content">
   <div class="header">
-    <h2>Changes</h2>
+    <div class="diff-indicator" title="{diffBase}..{diffHead}">
+      <span class="diff-base">{diffBase}</span>
+      <span class="diff-arrow">→</span>
+      <span class="diff-head">{diffHead === '@' ? 'current' : diffHead}</span>
+    </div>
     <div class="header-right">
       {#if totalCount > 0}
         <span class="file-counts">
-          <span class="approved-count" title="Approved">{approvedCount}</span>
+          <span class="reviewed-count">{reviewedCount}</span>
           <span class="separator">/</span>
-          <span class="total-count" title="Total">{totalCount}</span>
+          <span class="total-count">{totalCount}</span>
         </span>
       {/if}
       <button class="refresh-btn" onclick={loadStatus} title="Refresh">↻</button>
@@ -293,85 +346,125 @@
         <ul class="file-section">
           {#each needsReview as file (file.path)}
             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-            <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
             <li
               class="file-item"
               class:selected={selectedFile === file.path}
-              class:is-hovered={hoveredFile?.path === file.path}
               onclick={() => selectFile(file)}
-              onkeydown={(e) => e.key === 'Enter' && selectFile(file)}
-              onmouseenter={(e) => handleMouseEnter(e, file)}
-              onmouseleave={handleMouseLeave}
+              oncontextmenu={(e) => handleContextMenu(e, file)}
               tabindex="0"
               role="button"
             >
-              <!-- Status icon - fading if no checkpoint, solid if has checkpoint -->
-              <span class="status-icon" class:has-checkpoint={file.hasStaged}>
-                {#if file.hasStaged}
-                  <!-- Solid icons for files with checkpoint -->
-                  {#if file.status === 'added' || file.status === 'untracked'}
-                    <CirclePlus size={16} />
-                  {:else if file.status === 'deleted'}
-                    <CircleMinus size={16} />
-                  {:else}
-                    <CircleArrowUp size={16} />
-                  {/if}
-                {:else}
-                  <!-- Fading icons for files without checkpoint -->
-                  {#if file.status === 'added' || file.status === 'untracked'}
+              <!-- Status icon - clickable to toggle reviewed -->
+              <button
+                class="status-icon"
+                class:is-staged={file.hasStaged && !file.hasUnstaged}
+                onclick={(e) => toggleReviewed(e, file)}
+                title="Mark as reviewed"
+              >
+                <!-- Default icon (hidden on hover) -->
+                <span class="icon-default">
+                  {#if file.hasStaged && !file.hasUnstaged}
+                    {#if file.status === 'added' || file.status === 'untracked'}
+                      <CirclePlus size={16} />
+                    {:else if file.status === 'deleted'}
+                      <CircleMinus size={16} />
+                    {:else}
+                      <CircleArrowUp size={16} />
+                    {/if}
+                  {:else if file.status === 'added' || file.status === 'untracked'}
                     <CircleFadingPlus size={16} />
                   {:else if file.status === 'deleted'}
                     <CircleX size={16} />
                   {:else}
                     <CircleFadingArrowUp size={16} />
                   {/if}
-                {/if}
-              </span>
+                </span>
+                <!-- Hover icon (checkmark for "mark as reviewed") -->
+                <span class="icon-hover">
+                  <Check size={16} />
+                </span>
+              </button>
 
               <!-- File path -->
               <span class="file-path">
                 <span class="file-dir">{getFileDir(file.path)}</span>
                 <span class="file-name">{getFileName(file.path)}</span>
               </span>
+
+              <!-- Comment indicator -->
+              {#if file.commentCount > 0}
+                <span class="comment-indicator">
+                  <MessageSquare size={12} />
+                  <span class="comment-count">{file.commentCount}</span>
+                </span>
+              {/if}
             </li>
           {/each}
         </ul>
       {/if}
 
-      <!-- Separator -->
-      {#if needsReview.length > 0 && approved.length > 0}
-        <div class="section-divider"></div>
+      <!-- Divider with REVIEWED label -->
+      {#if reviewed.length > 0}
+        <div class="section-divider">
+          <span class="divider-label">REVIEWED</span>
+        </div>
       {/if}
 
-      <!-- Approved section -->
-      {#if approved.length > 0}
-        <ul class="file-section approved-section">
-          {#each approved as file (file.path)}
+      <!-- Reviewed section -->
+      {#if reviewed.length > 0}
+        <ul class="file-section reviewed-section">
+          {#each reviewed as file (file.path)}
             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-            <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
             <li
-              class="file-item approved"
+              class="file-item"
               class:selected={selectedFile === file.path}
               onclick={() => selectFile(file)}
-              onkeydown={(e) => e.key === 'Enter' && selectFile(file)}
+              oncontextmenu={(e) => handleContextMenu(e, file)}
               tabindex="0"
               role="button"
             >
-              <!-- Status icon - solid (approved/checkpointed) -->
-              <span class="status-icon has-checkpoint">
-                {#if file.status === 'added' || file.status === 'untracked'}
-                  <CirclePlus size={16} />
-                {:else if file.status === 'deleted'}
-                  <CircleMinus size={16} />
-                {:else}
-                  <CircleArrowUp size={16} />
-                {/if}
-              </span>
+              <!-- Status icon - clickable to toggle reviewed -->
+              <button
+                class="status-icon"
+                class:is-staged={file.hasStaged && !file.hasUnstaged}
+                onclick={(e) => toggleReviewed(e, file)}
+                title="Mark as needs review"
+              >
+                <!-- Default icon (hidden on hover) -->
+                <span class="icon-default">
+                  {#if file.hasStaged && !file.hasUnstaged}
+                    {#if file.status === 'added' || file.status === 'untracked'}
+                      <CirclePlus size={16} />
+                    {:else if file.status === 'deleted'}
+                      <CircleMinus size={16} />
+                    {:else}
+                      <CircleArrowUp size={16} />
+                    {/if}
+                  {:else if file.status === 'added' || file.status === 'untracked'}
+                    <CircleFadingPlus size={16} />
+                  {:else if file.status === 'deleted'}
+                    <CircleX size={16} />
+                  {:else}
+                    <CircleFadingArrowUp size={16} />
+                  {/if}
+                </span>
+                <!-- Hover icon (rotate for "unmark as reviewed") -->
+                <span class="icon-hover icon-hover-unreview">
+                  <RotateCcw size={16} />
+                </span>
+              </button>
 
               <span class="file-path">
                 <span class="file-dir">{getFileDir(file.path)}</span>
                 <span class="file-name">{getFileName(file.path)}</span>
               </span>
+
+              {#if file.commentCount > 0}
+                <span class="comment-indicator">
+                  <MessageSquare size={12} />
+                  <span class="comment-count">{file.commentCount}</span>
+                </span>
+              {/if}
             </li>
           {/each}
         </ul>
@@ -379,53 +472,37 @@
     </div>
   {/if}
 
-  <!-- D-pad overlay - fixed positioned outside the list -->
-  {#if hoveredFile && dpadStyle}
-    {@const file = hoveredFile}
-    {@const pos = dpadStyle}
+  <!-- Context Menu -->
+  {#if contextMenu}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="dpad-overlay" onmouseleave={handleOverlayMouseLeave}>
-      <!-- Outline around the row -->
-      <div
-        class="dpad-outline"
-        style="
-          top: {pos.lineTop}px;
-          left: {pos.lineLeft}px;
-          width: {pos.lineRight - pos.lineLeft}px;
-          height: {pos.lineBottom - pos.lineTop}px;
-        "
-      ></div>
-
-      <!-- Approve button (left side, aligned with sidebar border) -->
+    <div
+      class="context-menu"
+      style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
+      onclick={(e) => e.stopPropagation()}
+    >
+      {#if contextMenu.file.hasUnstaged}
+        <button class="context-item" onclick={() => handleStage(contextMenu!.file)}>
+          <Plus size={14} />
+          <span>Stage</span>
+        </button>
+      {/if}
+      {#if contextMenu.file.hasStaged}
+        <button class="context-item" onclick={() => handleUnstage(contextMenu!.file)}>
+          <Minus size={14} />
+          <span>Unstage</span>
+        </button>
+      {/if}
+      <div class="context-divider"></div>
       <button
-        class="dpad-btn approve-btn"
-        style="
-          top: {pos.lineTop}px;
-          left: {pos.lineLeft - 1}px;
-          height: {pos.lineBottom - pos.lineTop}px;
-          transform: translateX(-100%);
-        "
-        onclick={(e) => handleApprove(e, file)}
-        onmouseenter={handleButtonMouseEnter}
-        title="Approve"
+        class="context-item discard-item"
+        onmousedown={startDiscardHold}
+        onmouseup={cancelDiscardHold}
+        onmouseleave={cancelDiscardHold}
       >
-        <Check size={12} />
+        <span class="discard-progress" style="width: {discardProgress * 100}%"></span>
+        <Trash2 size={14} />
+        <span>Discard</span>
       </button>
-
-      <!-- Discard button (right side, inside row) - hold to confirm -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="dpad-discard-wrapper"
-        style="
-          top: {pos.lineTop}px;
-          left: {pos.lineLeft}px;
-          width: {pos.lineRight - pos.lineLeft}px;
-          height: {pos.lineBottom - pos.lineTop}px;
-        "
-        onmouseenter={handleButtonMouseEnter}
-      >
-        <HoldToDiscard onDiscard={() => handleDiscard(file)} title="Hold to discard" />
-      </div>
     </div>
   {/if}
 </div>
@@ -446,13 +523,23 @@
     border-bottom: 1px solid var(--border-primary);
   }
 
-  .header h2 {
-    margin: 0;
-    font-size: var(--size-md);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-secondary);
+  .diff-indicator {
+    font-size: var(--size-sm);
+    font-family: monospace;
+    cursor: default;
+  }
+
+  .diff-base {
+    color: var(--text-muted);
+  }
+
+  .diff-arrow {
+    color: var(--text-muted);
+    margin: 0 4px;
+  }
+
+  .diff-head {
+    color: var(--status-added);
   }
 
   .header-right {
@@ -466,7 +553,7 @@
     font-family: monospace;
   }
 
-  .approved-count {
+  .reviewed-count {
     color: var(--status-added);
   }
 
@@ -536,13 +623,31 @@
     padding: 0;
   }
 
+  /* Divider with REVIEWED label */
   .section-divider {
-    height: 1px;
-    background: var(--border-primary);
-    margin: 4px 8px;
+    display: flex;
+    align-items: center;
+    margin: 8px 12px;
+    gap: 8px;
   }
 
-  .approved-section {
+  .section-divider::before,
+  .section-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border-primary);
+  }
+
+  .divider-label {
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  .reviewed-section {
     opacity: 0.7;
   }
 
@@ -556,8 +661,7 @@
     position: relative;
   }
 
-  .file-item:hover,
-  .file-item.is-hovered {
+  .file-item:hover {
     background-color: var(--bg-tertiary);
   }
 
@@ -565,23 +669,56 @@
     background-color: var(--ui-selection);
   }
 
-  /* Status icon */
+  /* Status icon as button */
   .status-icon {
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 2px;
+    margin: -2px;
+    cursor: pointer;
     color: var(--text-muted);
+    border-radius: 3px;
+    transition:
+      color 0.1s,
+      background-color 0.1s;
   }
 
-  /* Has checkpoint + needs review = yellow (modified color) */
-  .status-icon.has-checkpoint {
-    color: var(--status-modified);
-  }
-
-  /* Approved section = green (fully approved) */
-  .approved-section .status-icon.has-checkpoint {
+  .status-icon:hover {
+    background-color: var(--bg-input);
     color: var(--status-added);
+  }
+
+  .status-icon.is-staged {
+    color: var(--text-secondary);
+  }
+
+  /* Icon swap on hover */
+  .icon-default,
+  .icon-hover {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .icon-hover {
+    display: none;
+  }
+
+  .status-icon:hover .icon-default {
+    display: none;
+  }
+
+  .status-icon:hover .icon-hover {
+    display: flex;
+  }
+
+  /* Unreview hover icon uses muted color instead of green */
+  .status-icon:hover .icon-hover-unreview {
+    color: var(--text-muted);
   }
 
   .file-path {
@@ -602,67 +739,74 @@
     color: var(--text-primary);
   }
 
-  /* D-pad overlay - fixed positioned in viewport */
-  .dpad-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    pointer-events: none;
-    z-index: 1000;
+  /* Comment indicator */
+  .comment-indicator {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--text-muted);
+    font-size: 10px;
+    flex-shrink: 0;
   }
 
-  .dpad-outline {
-    position: fixed;
-    border: 1px solid var(--border-primary);
-    border-left: none;
-    border-radius: 0;
-    pointer-events: none;
+  .comment-count {
+    font-family: monospace;
   }
 
-  .dpad-btn {
+  /* Context Menu */
+  .context-menu {
     position: fixed;
     background: var(--bg-secondary);
     border: 1px solid var(--border-primary);
-    padding: 2px 6px;
-    cursor: pointer;
-    color: var(--text-muted);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition:
-      color 0.1s,
-      background-color 0.1s;
-    pointer-events: auto;
+    border-radius: 6px;
+    padding: 4px 0;
+    min-width: 160px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
   }
 
-  .dpad-btn:hover {
+  .context-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 12px;
+    background: none;
+    border: none;
     color: var(--text-primary);
-    background-color: var(--bg-input);
+    font-size: var(--size-sm);
+    text-align: left;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
   }
 
-  /* Approve button - left side */
-  .dpad-btn.approve-btn {
-    border-radius: 3px 0 0 3px;
-    border-right: none;
+  .context-item:hover {
+    background-color: var(--bg-tertiary);
   }
 
-  .dpad-btn.approve-btn:hover {
-    color: var(--status-added);
+  .context-divider {
+    height: 1px;
+    background: var(--border-primary);
+    margin: 4px 0;
   }
 
-  /* Discard wrapper - positions HoldToDiscard component flush to right edge */
-  .dpad-discard-wrapper {
-    position: fixed;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
+  /* Hold to discard - no red text, just red progress bar */
+  .context-item.discard-item {
+    color: var(--text-primary);
+  }
+
+  .context-item.discard-item:hover {
+    background-color: var(--bg-tertiary);
+  }
+
+  .discard-progress {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background-color: var(--status-deleted);
+    opacity: 0.5;
     pointer-events: none;
-  }
-
-  /* Only the button itself should capture pointer events */
-  :global(.dpad-discard-wrapper .hold-to-discard) {
-    pointer-events: auto;
   }
 </style>
