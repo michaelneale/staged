@@ -4,14 +4,14 @@ export interface FileStatus {
 }
 
 // =============================================================================
-// New simplified diff types
+// Diff types
 // =============================================================================
 
 /** Content of a file - either text lines or binary marker */
 export type FileContent = { type: 'text'; lines: string[] } | { type: 'binary' };
 
 /** A file with its path and content */
-export interface DiffFile {
+export interface File {
   path: string;
   content: FileContent;
 }
@@ -33,9 +33,9 @@ export interface Alignment {
 /** The diff for a single file between two states */
 export interface FileDiff {
   /** File before the change (null if added) */
-  before: DiffFile | null;
+  before: File | null;
   /** File after the change (null if deleted) */
-  after: DiffFile | null;
+  after: File | null;
   /** Alignments mapping regions between before/after */
   alignments: Alignment[];
 }
@@ -126,51 +126,61 @@ export interface GitRef {
   ref_type: 'branch' | 'tag' | 'special';
 }
 
+// =============================================================================
 // Review types
+// =============================================================================
 
+/** Identifies a diff by its two endpoints */
 export interface DiffId {
-  base: string; // SHA
-  head: string; // SHA or "@" for working tree
+  before: string;
+  after: string;
 }
 
-/** A diff specification with display label */
+/** A diff specification with display label (for UI) */
 export interface DiffSpec {
   base: string;
   head: string;
   label: string;
 }
 
+/** Where a comment applies */
+export type Selection =
+  | { type: 'global' }
+  | { type: 'line'; line: number }
+  | { type: 'range'; span: Span };
+
+/** A comment attached to a specific location in a file */
 export interface Comment {
   id: string;
-  file_path: string;
-  range_index: number;
-  text: string;
-  created_at: string;
+  path: string;
+  selection: Selection;
+  content: string;
 }
 
+/** An edit made during review, stored as a unified diff */
 export interface Edit {
   id: string;
-  file_path: string;
+  path: string;
   diff: string;
-  created_at: string;
 }
 
+/** A review attached to a specific diff */
 export interface Review {
   id: DiffId;
-  reviewed: string[]; // file paths
+  reviewed: string[];
   comments: Comment[];
   edits: Edit[];
-  created_at: string;
-  updated_at: string;
 }
 
+/** Input for creating a new comment */
 export interface NewComment {
-  file_path: string;
-  range_index: number;
-  text: string;
+  path: string;
+  selection: Selection;
+  content: string;
 }
 
+/** Input for recording a new edit */
 export interface NewEdit {
-  file_path: string;
+  path: string;
   diff: string;
 }

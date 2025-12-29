@@ -24,22 +24,22 @@ export async function addComment(
 /**
  * Delete a comment from a review.
  */
-export async function deleteComment(base: string, head: string, commentId: string): Promise<void> {
-  return invoke('delete_comment', { base, head, commentId });
+export async function deleteComment(commentId: string): Promise<void> {
+  return invoke('delete_comment', { commentId });
 }
 
 /**
  * Mark a file as reviewed.
  */
-export async function markReviewed(base: string, head: string, filePath: string): Promise<void> {
-  return invoke('mark_reviewed', { base, head, filePath });
+export async function markReviewed(base: string, head: string, path: string): Promise<void> {
+  return invoke('mark_reviewed', { base, head, path });
 }
 
 /**
  * Unmark a file as reviewed.
  */
-export async function unmarkReviewed(base: string, head: string, filePath: string): Promise<void> {
-  return invoke('unmark_reviewed', { base, head, filePath });
+export async function unmarkReviewed(base: string, head: string, path: string): Promise<void> {
+  return invoke('unmark_reviewed', { base, head, path });
 }
 
 /**

@@ -3,11 +3,17 @@
 //! Reviews are stored separately from git, keyed by DiffId.
 
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager};
 
 use super::types::{DiffId, Span};
+
+// =============================================================================
+// Types
+// =============================================================================
 
 /// A review attached to a specific diff.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +47,17 @@ pub struct Comment {
     pub content: String,
 }
 
+impl Comment {
+    pub fn new(path: impl Into<String>, selection: Selection, content: impl Into<String>) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            path: path.into(),
+            selection,
+            content: content.into(),
+        }
+    }
+}
+
 /// Where a comment applies.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -62,9 +79,43 @@ pub struct Edit {
     pub diff: String,
 }
 
-/// Error type for review storage operations.
+impl Edit {
+    pub fn new(path: impl Into<String>, diff: impl Into<String>) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            path: path.into(),
+            diff: diff.into(),
+        }
+    }
+}
+
+/// Input for creating a new comment (from frontend).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewComment {
+    pub path: String,
+    pub selection: Selection,
+    pub content: String,
+}
+
+/// Input for recording a new edit (from frontend).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewEdit {
+    pub path: String,
+    pub diff: String,
+}
+
+// =============================================================================
+// Error type
+// =============================================================================
+
 #[derive(Debug)]
 pub struct ReviewError(pub String);
+
+impl ReviewError {
+    pub fn new(msg: impl Into<String>) -> Self {
+        Self(msg.into())
+    }
+}
 
 impl std::fmt::Display for ReviewError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -82,9 +133,49 @@ impl From<rusqlite::Error> for ReviewError {
 
 type Result<T> = std::result::Result<T, ReviewError>;
 
+// =============================================================================
+// Global store
+// =============================================================================
+
+/// Global store instance - initialized during app setup.
+static STORE: OnceLock<std::result::Result<ReviewStore, String>> = OnceLock::new();
+
+/// Initialize the global store with the app's data directory.
+/// Call this once during Tauri app setup.
+pub fn init_store(app_handle: &AppHandle) -> Result<()> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| ReviewError::new(format!("Cannot get app data dir: {}", e)))?;
+
+    let db_path = app_data_dir.join("reviews.db");
+
+    STORE.get_or_init(|| ReviewStore::open(db_path).map_err(|e| e.0));
+
+    // Check if initialization succeeded
+    get_store()?;
+    Ok(())
+}
+
+/// Get the global store. Must call init_store first during app setup.
+pub fn get_store() -> Result<&'static ReviewStore> {
+    let result = STORE
+        .get()
+        .ok_or_else(|| ReviewError::new("Review store not initialized"))?;
+
+    match result {
+        Ok(store) => Ok(store),
+        Err(msg) => Err(ReviewError::new(msg.clone())),
+    }
+}
+
+// =============================================================================
+// Review storage
+// =============================================================================
+
 /// Review storage backed by SQLite.
 pub struct ReviewStore {
-    conn: Connection,
+    conn: Mutex<Connection>,
 }
 
 impl ReviewStore {
@@ -97,14 +188,17 @@ impl ReviewStore {
         }
 
         let conn = Connection::open(&db_path)?;
-        let store = Self { conn };
+        let store = Self {
+            conn: Mutex::new(conn),
+        };
         store.init_schema()?;
         Ok(store)
     }
 
     /// Initialize the database schema.
     fn init_schema(&self) -> Result<()> {
-        self.conn.execute_batch(
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS reviews (
                 before_ref TEXT NOT NULL,
@@ -117,7 +211,7 @@ impl ReviewStore {
                 after_ref TEXT NOT NULL,
                 path TEXT NOT NULL,
                 PRIMARY KEY (before_ref, after_ref, path),
-                FOREIGN KEY (before_ref, after_ref) REFERENCES reviews(before_ref, after_ref)
+                FOREIGN KEY (before_ref, after_ref) REFERENCES reviews(before_ref, after_ref) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS comments (
@@ -130,7 +224,7 @@ impl ReviewStore {
                 selection_start INTEGER,
                 selection_end INTEGER,
                 content TEXT NOT NULL,
-                FOREIGN KEY (before_ref, after_ref) REFERENCES reviews(before_ref, after_ref)
+                FOREIGN KEY (before_ref, after_ref) REFERENCES reviews(before_ref, after_ref) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS edits (
@@ -139,8 +233,10 @@ impl ReviewStore {
                 after_ref TEXT NOT NULL,
                 path TEXT NOT NULL,
                 diff TEXT NOT NULL,
-                FOREIGN KEY (before_ref, after_ref) REFERENCES reviews(before_ref, after_ref)
+                FOREIGN KEY (before_ref, after_ref) REFERENCES reviews(before_ref, after_ref) ON DELETE CASCADE
             );
+
+            PRAGMA foreign_keys = ON;
             "#,
         )?;
         Ok(())
@@ -148,20 +244,27 @@ impl ReviewStore {
 
     /// Get or create a review for the given diff.
     pub fn get_or_create(&self, id: &DiffId) -> Result<Review> {
+        let conn = self.conn.lock().unwrap();
+
         // Ensure review exists
-        self.conn.execute(
+        conn.execute(
             "INSERT OR IGNORE INTO reviews (before_ref, after_ref) VALUES (?1, ?2)",
             params![&id.before, &id.after],
         )?;
 
-        self.get(id)
+        self.get_with_conn(&conn, id)
     }
 
     /// Get a review by its DiffId.
     pub fn get(&self, id: &DiffId) -> Result<Review> {
+        let conn = self.conn.lock().unwrap();
+        self.get_with_conn(&conn, id)
+    }
+
+    /// Get a review using an existing connection lock.
+    fn get_with_conn(&self, conn: &Connection, id: &DiffId) -> Result<Review> {
         // Check if review exists
-        let exists: bool = self
-            .conn
+        let exists: bool = conn
             .query_row(
                 "SELECT 1 FROM reviews WHERE before_ref = ?1 AND after_ref = ?2",
                 params![&id.before, &id.after],
@@ -175,15 +278,14 @@ impl ReviewStore {
         }
 
         // Load reviewed files
-        let mut stmt = self
-            .conn
+        let mut stmt = conn
             .prepare("SELECT path FROM reviewed_files WHERE before_ref = ?1 AND after_ref = ?2")?;
         let reviewed: Vec<String> = stmt
             .query_map(params![&id.before, &id.after], |row| row.get(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
         // Load comments
-        let mut stmt = self.conn.prepare(
+        let mut stmt = conn.prepare(
             "SELECT id, path, selection_type, selection_line, selection_start, selection_end, content 
              FROM comments WHERE before_ref = ?1 AND after_ref = ?2",
         )?;
@@ -218,8 +320,7 @@ impl ReviewStore {
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
         // Load edits
-        let mut stmt = self
-            .conn
+        let mut stmt = conn
             .prepare("SELECT id, path, diff FROM edits WHERE before_ref = ?1 AND after_ref = ?2")?;
         let edits: Vec<Edit> = stmt
             .query_map(params![&id.before, &id.after], |row| {
@@ -242,7 +343,8 @@ impl ReviewStore {
     /// Mark a file as reviewed.
     pub fn mark_reviewed(&self, id: &DiffId, path: &str) -> Result<()> {
         self.get_or_create(id)?;
-        self.conn.execute(
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
             "INSERT OR IGNORE INTO reviewed_files (before_ref, after_ref, path) VALUES (?1, ?2, ?3)",
             params![&id.before, &id.after, path],
         )?;
@@ -251,7 +353,8 @@ impl ReviewStore {
 
     /// Unmark a file as reviewed.
     pub fn unmark_reviewed(&self, id: &DiffId, path: &str) -> Result<()> {
-        self.conn.execute(
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
             "DELETE FROM reviewed_files WHERE before_ref = ?1 AND after_ref = ?2 AND path = ?3",
             params![&id.before, &id.after, path],
         )?;
@@ -259,8 +362,9 @@ impl ReviewStore {
     }
 
     /// Add a comment.
-    pub fn add_comment(&self, id: &DiffId, comment: Comment) -> Result<()> {
+    pub fn add_comment(&self, id: &DiffId, comment: &Comment) -> Result<()> {
         self.get_or_create(id)?;
+        let conn = self.conn.lock().unwrap();
 
         let (selection_type, selection_line, selection_start, selection_end) =
             match &comment.selection {
@@ -269,7 +373,7 @@ impl ReviewStore {
                 Selection::Range { span } => ("range", None, Some(span.start), Some(span.end)),
             };
 
-        self.conn.execute(
+        conn.execute(
             "INSERT INTO comments (id, before_ref, after_ref, path, selection_type, selection_line, selection_start, selection_end, content)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
@@ -289,7 +393,8 @@ impl ReviewStore {
 
     /// Update a comment's content.
     pub fn update_comment(&self, comment_id: &str, content: &str) -> Result<()> {
-        self.conn.execute(
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
             "UPDATE comments SET content = ?1 WHERE id = ?2",
             params![content, comment_id],
         )?;
@@ -298,15 +403,16 @@ impl ReviewStore {
 
     /// Delete a comment.
     pub fn delete_comment(&self, comment_id: &str) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM comments WHERE id = ?1", params![comment_id])?;
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM comments WHERE id = ?1", params![comment_id])?;
         Ok(())
     }
 
     /// Add an edit.
-    pub fn add_edit(&self, id: &DiffId, edit: Edit) -> Result<()> {
+    pub fn add_edit(&self, id: &DiffId, edit: &Edit) -> Result<()> {
         self.get_or_create(id)?;
-        self.conn.execute(
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
             "INSERT INTO edits (id, before_ref, after_ref, path, diff) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![&edit.id, &id.before, &id.after, &edit.path, &edit.diff],
         )?;
@@ -315,32 +421,94 @@ impl ReviewStore {
 
     /// Delete an edit.
     pub fn delete_edit(&self, edit_id: &str) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM edits WHERE id = ?1", params![edit_id])?;
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM edits WHERE id = ?1", params![edit_id])?;
         Ok(())
     }
 
     /// Delete an entire review and all associated data.
-    pub fn delete_review(&self, id: &DiffId) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM reviewed_files WHERE before_ref = ?1 AND after_ref = ?2",
-            params![&id.before, &id.after],
-        )?;
-        self.conn.execute(
-            "DELETE FROM comments WHERE before_ref = ?1 AND after_ref = ?2",
-            params![&id.before, &id.after],
-        )?;
-        self.conn.execute(
-            "DELETE FROM edits WHERE before_ref = ?1 AND after_ref = ?2",
-            params![&id.before, &id.after],
-        )?;
-        self.conn.execute(
+    pub fn delete(&self, id: &DiffId) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        // Foreign key cascades handle child tables
+        conn.execute(
             "DELETE FROM reviews WHERE before_ref = ?1 AND after_ref = ?2",
             params![&id.before, &id.after],
         )?;
         Ok(())
     }
 }
+
+// =============================================================================
+// Export
+// =============================================================================
+
+/// Export a review as markdown for clipboard.
+pub fn export_markdown(review: &Review) -> String {
+    let mut md = String::new();
+
+    // Group comments by file
+    let mut comments_by_file: std::collections::HashMap<&str, Vec<&Comment>> =
+        std::collections::HashMap::new();
+    for comment in &review.comments {
+        comments_by_file
+            .entry(&comment.path)
+            .or_default()
+            .push(comment);
+    }
+
+    // Group edits by file
+    let mut edits_by_file: std::collections::HashMap<&str, Vec<&Edit>> =
+        std::collections::HashMap::new();
+    for edit in &review.edits {
+        edits_by_file.entry(&edit.path).or_default().push(edit);
+    }
+
+    // Collect all files
+    let mut all_files: Vec<&str> = comments_by_file
+        .keys()
+        .chain(edits_by_file.keys())
+        .copied()
+        .collect();
+    all_files.sort();
+    all_files.dedup();
+
+    for file in all_files {
+        md.push_str(&format!("## {}\n\n", file));
+
+        if let Some(comments) = comments_by_file.get(file) {
+            for comment in comments {
+                let location = match &comment.selection {
+                    Selection::Global => "File".to_string(),
+                    Selection::Line { line } => format!("Line {}", line + 1),
+                    Selection::Range { span } => format!("Lines {}-{}", span.start + 1, span.end),
+                };
+                md.push_str(&format!("- **{}**: {}\n", location, comment.content));
+            }
+            md.push('\n');
+        }
+
+        if let Some(edits) = edits_by_file.get(file) {
+            for edit in edits {
+                md.push_str("**Edit applied:**\n```diff\n");
+                md.push_str(&edit.diff);
+                if !edit.diff.ends_with('\n') {
+                    md.push('\n');
+                }
+                md.push_str("```\n\n");
+            }
+        }
+    }
+
+    if md.is_empty() {
+        md.push_str("No comments or edits.\n");
+    }
+
+    md
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -370,24 +538,87 @@ mod tests {
         let store = ReviewStore::open(db_path).unwrap();
         let id = DiffId::new("main", "feature");
 
-        let comment = Comment {
-            id: "c1".into(),
-            path: "src/lib.rs".into(),
-            selection: Selection::Line { line: 42 },
-            content: "This looks wrong".into(),
-        };
+        let comment = Comment::new(
+            "src/lib.rs",
+            Selection::Line { line: 42 },
+            "This looks wrong",
+        );
 
-        store.add_comment(&id, comment).unwrap();
+        store.add_comment(&id, &comment).unwrap();
         let review = store.get(&id).unwrap();
         assert_eq!(review.comments.len(), 1);
         assert_eq!(review.comments[0].content, "This looks wrong");
 
-        store.update_comment("c1", "Actually it's fine").unwrap();
+        store
+            .update_comment(&comment.id, "Actually it's fine")
+            .unwrap();
         let review = store.get(&id).unwrap();
         assert_eq!(review.comments[0].content, "Actually it's fine");
 
-        store.delete_comment("c1").unwrap();
+        store.delete_comment(&comment.id).unwrap();
         let review = store.get(&id).unwrap();
         assert!(review.comments.is_empty());
+    }
+
+    #[test]
+    fn test_edits() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let store = ReviewStore::open(db_path).unwrap();
+        let id = DiffId::new("main", "feature");
+
+        let edit = Edit::new("src/lib.rs", "-old\n+new");
+
+        store.add_edit(&id, &edit).unwrap();
+        let review = store.get(&id).unwrap();
+        assert_eq!(review.edits.len(), 1);
+        assert_eq!(review.edits[0].diff, "-old\n+new");
+
+        store.delete_edit(&edit.id).unwrap();
+        let review = store.get(&id).unwrap();
+        assert!(review.edits.is_empty());
+    }
+
+    #[test]
+    fn test_delete_review() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let store = ReviewStore::open(db_path).unwrap();
+        let id = DiffId::new("main", "feature");
+
+        store.mark_reviewed(&id, "src/main.rs").unwrap();
+        store
+            .add_comment(&id, &Comment::new("src/main.rs", Selection::Global, "test"))
+            .unwrap();
+
+        store.delete(&id).unwrap();
+        let review = store.get(&id).unwrap();
+        assert!(review.reviewed.is_empty());
+        assert!(review.comments.is_empty());
+    }
+
+    #[test]
+    fn test_export_markdown() {
+        let id = DiffId::new("main", "feature");
+        let mut review = Review::new(id);
+
+        review.comments.push(Comment {
+            id: "c1".into(),
+            path: "src/lib.rs".into(),
+            selection: Selection::Line { line: 10 },
+            content: "Fix this".into(),
+        });
+
+        review.edits.push(Edit {
+            id: "e1".into(),
+            path: "src/lib.rs".into(),
+            diff: "-old\n+new".into(),
+        });
+
+        let md = export_markdown(&review);
+        assert!(md.contains("## src/lib.rs"));
+        assert!(md.contains("Line 11")); // 0-indexed to 1-indexed
+        assert!(md.contains("Fix this"));
+        assert!(md.contains("-old"));
     }
 }

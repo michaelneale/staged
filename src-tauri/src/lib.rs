@@ -1,18 +1,17 @@
 pub mod diff;
 pub mod git;
 mod refresh;
-pub mod review;
 mod watcher;
 
+use diff::{Comment, DiffId, Edit, NewComment, NewEdit, Review};
 use git::{ChangedFile, CommitResult, DiscardRange, GitRef, GitStatus, LegacyFileDiff};
 use refresh::RefreshController;
-use review::{Comment, DiffId, Edit, NewComment, NewEdit, Review, ReviewStore};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{Manager, State};
 
 // =============================================================================
-// New Diff Commands (using diff module)
+// Diff Commands
 // =============================================================================
 
 /// Get the full diff between two refs.
@@ -33,7 +32,7 @@ fn get_diff(
 
 /// Get list of refs (branches, tags) for autocomplete.
 #[tauri::command]
-fn get_refs_v2(repo_path: Option<String>) -> Result<Vec<String>, String> {
+fn list_refs(repo_path: Option<String>) -> Result<Vec<String>, String> {
     let path = repo_path
         .as_deref()
         .map(std::path::Path::new)
@@ -175,67 +174,62 @@ fn discard_lines(
 
 #[tauri::command]
 fn get_review(base: String, head: String) -> Result<Review, String> {
-    let store = review::get_store().map_err(|e| e.message)?;
+    let store = diff::get_store().map_err(|e| e.0)?;
     let id = DiffId::new(base, head);
-    store.get_or_create(&id).map_err(|e| e.message)
+    store.get_or_create(&id).map_err(|e| e.0)
 }
 
 #[tauri::command]
 fn add_comment(base: String, head: String, comment: NewComment) -> Result<Comment, String> {
-    let store = review::get_store().map_err(|e| e.message)?;
+    let store = diff::get_store().map_err(|e| e.0)?;
     let id = DiffId::new(base, head);
-    let comment = Comment::new(comment.file_path, comment.range_index, comment.text);
-    store.add_comment(&id, &comment).map_err(|e| e.message)?;
+    let comment = Comment::new(comment.path, comment.selection, comment.content);
+    store.add_comment(&id, &comment).map_err(|e| e.0)?;
     Ok(comment)
 }
 
 #[tauri::command]
-fn delete_comment(base: String, head: String, comment_id: String) -> Result<(), String> {
-    let store = review::get_store().map_err(|e| e.message)?;
-    let id = DiffId::new(base, head);
-    let uuid =
-        uuid::Uuid::parse_str(&comment_id).map_err(|e| format!("Invalid comment ID: {}", e))?;
-    store.delete_comment(&id, uuid).map_err(|e| e.message)
+fn delete_comment(comment_id: String) -> Result<(), String> {
+    let store = diff::get_store().map_err(|e| e.0)?;
+    store.delete_comment(&comment_id).map_err(|e| e.0)
 }
 
 #[tauri::command]
-fn mark_reviewed(base: String, head: String, file_path: String) -> Result<(), String> {
-    let store = review::get_store().map_err(|e| e.message)?;
+fn mark_reviewed(base: String, head: String, path: String) -> Result<(), String> {
+    let store = diff::get_store().map_err(|e| e.0)?;
     let id = DiffId::new(base, head);
-    store.mark_reviewed(&id, &file_path).map_err(|e| e.message)
+    store.mark_reviewed(&id, &path).map_err(|e| e.0)
 }
 
 #[tauri::command]
-fn unmark_reviewed(base: String, head: String, file_path: String) -> Result<(), String> {
-    let store = review::get_store().map_err(|e| e.message)?;
+fn unmark_reviewed(base: String, head: String, path: String) -> Result<(), String> {
+    let store = diff::get_store().map_err(|e| e.0)?;
     let id = DiffId::new(base, head);
-    store
-        .unmark_reviewed(&id, &file_path)
-        .map_err(|e| e.message)
+    store.unmark_reviewed(&id, &path).map_err(|e| e.0)
 }
 
 #[tauri::command]
 fn record_edit(base: String, head: String, edit: NewEdit) -> Result<Edit, String> {
-    let store = review::get_store().map_err(|e| e.message)?;
+    let store = diff::get_store().map_err(|e| e.0)?;
     let id = DiffId::new(base, head);
-    let edit = Edit::new(edit.file_path, edit.diff);
-    store.add_edit(&id, &edit).map_err(|e| e.message)?;
+    let edit = Edit::new(edit.path, edit.diff);
+    store.add_edit(&id, &edit).map_err(|e| e.0)?;
     Ok(edit)
 }
 
 #[tauri::command]
 fn export_review_markdown(base: String, head: String) -> Result<String, String> {
-    let store = review::get_store().map_err(|e| e.message)?;
+    let store = diff::get_store().map_err(|e| e.0)?;
     let id = DiffId::new(base, head);
-    let review = store.get_or_create(&id).map_err(|e| e.message)?;
-    Ok(review::export_markdown(&review))
+    let review = store.get_or_create(&id).map_err(|e| e.0)?;
+    Ok(diff::export_markdown(&review))
 }
 
 #[tauri::command]
 fn clear_review(base: String, head: String) -> Result<(), String> {
-    let store = review::get_store().map_err(|e| e.message)?;
+    let store = diff::get_store().map_err(|e| e.0)?;
     let id = DiffId::new(base, head);
-    store.delete(&id).map_err(|e| e.message)
+    store.delete(&id).map_err(|e| e.0)
 }
 
 // =============================================================================
@@ -290,6 +284,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(RefreshControllerState(Mutex::new(None)))
         .setup(|app| {
+            // Initialize the review store with app data directory
+            diff::init_store(app.handle()).map_err(|e| e.0)?;
+
             // Initialize the refresh controller with the app handle
             let controller = RefreshController::new(app.handle().clone());
             let state: State<RefreshControllerState> = app.state();
@@ -305,11 +302,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // New diff commands
+            // Diff commands
             get_diff,
-            get_refs_v2,
+            list_refs,
             get_current_branch,
-            // Legacy git commands
+            // Legacy git commands (to be removed)
             get_git_status,
             open_repository,
             get_ref_diff,

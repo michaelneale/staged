@@ -9,7 +9,7 @@ import type {
 } from '../types';
 
 // =============================================================================
-// New diff API
+// Diff API
 // =============================================================================
 
 /**
@@ -27,8 +27,8 @@ export async function getDiff(base: string, head: string, repoPath?: string): Pr
 /**
  * Get list of refs (branches, tags) for autocomplete.
  */
-export async function getRefsV2(repoPath?: string): Promise<string[]> {
-  return invoke<string[]>('get_refs_v2', {
+export async function listRefs(repoPath?: string): Promise<string[]> {
+  return invoke<string[]>('list_refs', {
     repoPath: repoPath ?? null,
   });
 }
@@ -175,6 +175,7 @@ export async function discardLines(
 
 /**
  * Get list of refs (branches, tags, special refs) for autocomplete.
+ * @deprecated Use listRefs instead.
  */
 export async function getRefs(repoPath?: string): Promise<GitRef[]> {
   return invoke<GitRef[]>('get_refs', {

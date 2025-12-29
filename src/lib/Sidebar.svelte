@@ -91,7 +91,7 @@
     // Count comments per file
     const commentCounts = new Map<string, number>();
     for (const comment of reviewData?.comments || []) {
-      commentCounts.set(comment.file_path, (commentCounts.get(comment.file_path) || 0) + 1);
+      commentCounts.set(comment.path, (commentCounts.get(comment.path) || 0) + 1);
     }
 
     return files.map((f) => ({
