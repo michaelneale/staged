@@ -12,7 +12,49 @@ use std::sync::Mutex;
 use tauri::{Manager, State};
 
 // =============================================================================
-// Tauri Commands
+// New Diff Commands (using diff module)
+// =============================================================================
+
+/// Get the full diff between two refs.
+/// Returns all changed files with their content and alignments.
+#[tauri::command]
+fn get_diff(
+    repo_path: Option<String>,
+    base: String,
+    head: String,
+) -> Result<Vec<diff::FileDiff>, String> {
+    let path = repo_path
+        .as_deref()
+        .map(std::path::Path::new)
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let repo = diff::open_repo(path).map_err(|e| e.0)?;
+    diff::compute_diff(&repo, &base, &head).map_err(|e| e.0)
+}
+
+/// Get list of refs (branches, tags) for autocomplete.
+#[tauri::command]
+fn get_refs_v2(repo_path: Option<String>) -> Result<Vec<String>, String> {
+    let path = repo_path
+        .as_deref()
+        .map(std::path::Path::new)
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let repo = diff::open_repo(path).map_err(|e| e.0)?;
+    diff::list_refs(&repo).map_err(|e| e.0)
+}
+
+/// Get current branch name.
+#[tauri::command]
+fn get_current_branch(repo_path: Option<String>) -> Result<Option<String>, String> {
+    let path = repo_path
+        .as_deref()
+        .map(std::path::Path::new)
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let repo = diff::open_repo(path).map_err(|e| e.0)?;
+    diff::current_branch(&repo).map_err(|e| e.0)
+}
+
+// =============================================================================
+// Legacy Tauri Commands (using old git module)
 // =============================================================================
 
 #[tauri::command]
@@ -262,7 +304,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // Git commands
+            // New diff commands
+            get_diff,
+            get_refs_v2,
+            get_current_branch,
+            // Legacy git commands
             get_git_status,
             open_repository,
             get_ref_diff,

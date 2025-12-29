@@ -5,9 +5,9 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use git2::{DiffOptions, Repository, Tree};
+use git2::{Delta, DiffOptions, Repository, Tree};
 
-use super::types::{Connection, DiffId, FileContent, FileDiff, Span};
+use super::types::{Alignment, File, FileContent, FileDiff, Span};
 
 /// Error type for git operations.
 #[derive(Debug)]
@@ -108,17 +108,25 @@ fn resolve_to_tree<'a>(repo: &'a Repository, refspec: &str) -> Result<Option<Tre
     Ok(Some(commit.tree()?))
 }
 
+/// Info about a changed file collected from git diff.
+struct FileChange {
+    before_path: Option<String>,
+    after_path: Option<String>,
+    status: Delta,
+}
+
 /// Compute the diff between two refs.
 ///
-/// Returns a list of FileDiff objects with full content and connections.
-pub fn compute_diff(repo: &Repository, diff_id: &DiffId) -> Result<Vec<FileDiff>> {
-    let before_tree = resolve_to_tree(repo, &diff_id.before)?;
-    let after_tree = resolve_to_tree(repo, &diff_id.after)?;
+/// Returns a list of FileDiff objects with full content and alignments.
+pub fn compute_diff(repo: &Repository, before_ref: &str, after_ref: &str) -> Result<Vec<FileDiff>> {
+    let before_tree = resolve_to_tree(repo, before_ref)?;
+    let after_tree = resolve_to_tree(repo, after_ref)?;
+    let is_working_tree = after_ref == "@";
 
     let mut opts = DiffOptions::new();
     opts.ignore_submodules(true);
 
-    let diff = if diff_id.is_working_tree() {
+    let diff = if is_working_tree {
         // Diff from before_tree to working directory
         repo.diff_tree_to_workdir_with_index(before_tree.as_ref(), Some(&mut opts))?
     } else {
@@ -126,69 +134,74 @@ pub fn compute_diff(repo: &Repository, diff_id: &DiffId) -> Result<Vec<FileDiff>
         repo.diff_tree_to_tree(before_tree.as_ref(), after_tree.as_ref(), Some(&mut opts))?
     };
 
-    // Collect changed file paths
-    let mut file_diffs: HashMap<String, FileDiff> = HashMap::new();
+    // Collect changed files with their paths and status
+    let mut file_changes: Vec<FileChange> = Vec::new();
 
-    // First pass: identify files and their status
     for delta in diff.deltas() {
-        let path = delta
-            .new_file()
-            .path()
-            .or_else(|| delta.old_file().path())
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
+        let before_path = delta.old_file().path().map(|p| p.to_string_lossy().to_string());
+        let after_path = delta.new_file().path().map(|p| p.to_string_lossy().to_string());
 
-        if path.is_empty() {
-            continue;
-        }
-
-        file_diffs.insert(
-            path.clone(),
-            FileDiff {
-                path,
-                before: None,
-                after: None,
-                connections: Vec::new(),
-            },
-        );
+        file_changes.push(FileChange {
+            before_path,
+            after_path,
+            status: delta.status(),
+        });
     }
 
-    // Second pass: load content for each file
-    for file_diff in file_diffs.values_mut() {
-        let path = Path::new(&file_diff.path);
+    // Build FileDiff for each changed file
+    let mut result: Vec<FileDiff> = Vec::new();
 
-        // Load "before" content from before_tree
-        if let Some(ref tree) = before_tree {
-            file_diff.before = load_file_content_from_tree(repo, tree, path)?;
-        }
+    for change in file_changes {
+        let before_file = if let Some(ref path) = change.before_path {
+            if change.status != Delta::Added {
+                load_file(repo, before_tree.as_ref(), Path::new(path), false)?
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
-        // Load "after" content
-        if diff_id.is_working_tree() {
-            // Read from working directory
-            let workdir = repo
-                .workdir()
-                .ok_or_else(|| GitError("Bare repository".into()))?;
-            let full_path = workdir.join(path);
-            file_diff.after = load_file_content_from_disk(&full_path)?;
-        } else if let Some(ref tree) = after_tree {
-            file_diff.after = load_file_content_from_tree(repo, tree, path)?;
-        }
+        let after_file = if let Some(ref path) = change.after_path {
+            if change.status != Delta::Deleted {
+                if is_working_tree {
+                    load_file_from_workdir(repo, Path::new(path))?
+                } else {
+                    load_file(repo, after_tree.as_ref(), Path::new(path), false)?
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
-        // Compute connections between before and after
-        file_diff.connections = compute_connections(&file_diff.before, &file_diff.after);
+        let alignments = compute_alignments(&before_file, &after_file);
+
+        result.push(FileDiff {
+            before: before_file,
+            after: after_file,
+            alignments,
+        });
     }
 
-    let mut result: Vec<_> = file_diffs.into_values().collect();
-    result.sort_by(|a, b| a.path.cmp(&b.path));
+    // Sort by path
+    result.sort_by(|a, b| a.path().cmp(b.path()));
     Ok(result)
 }
 
-/// Load file content from a git tree.
-fn load_file_content_from_tree(
+/// Load a file from a git tree.
+fn load_file(
     repo: &Repository,
-    tree: &Tree,
+    tree: Option<&Tree>,
     path: &Path,
-) -> Result<Option<FileContent>> {
+    _is_workdir: bool,
+) -> Result<Option<File>> {
+    let tree = match tree {
+        Some(t) => t,
+        None => return Ok(None),
+    };
+
     let entry = match tree.get_path(path) {
         Ok(e) => e,
         Err(_) => return Ok(None), // File doesn't exist in this tree
@@ -203,57 +216,86 @@ fn load_file_content_from_tree(
         None => return Ok(None), // Not a file (maybe a submodule)
     };
 
-    let content = blob.content();
-    if FileContent::is_binary(content) {
-        Ok(Some(FileContent::Binary))
+    let bytes = blob.content();
+    let content = if FileContent::is_binary_data(bytes) {
+        FileContent::Binary
     } else {
-        let text = String::from_utf8_lossy(content);
-        Ok(Some(FileContent::from_text(&text)))
-    }
+        let text = String::from_utf8_lossy(bytes);
+        FileContent::from_text(&text)
+    };
+
+    Ok(Some(File {
+        path: path.to_string_lossy().to_string(),
+        content,
+    }))
 }
 
-/// Load file content from disk.
-fn load_file_content_from_disk(path: &Path) -> Result<Option<FileContent>> {
-    if !path.exists() {
+/// Load a file from the working directory.
+fn load_file_from_workdir(repo: &Repository, path: &Path) -> Result<Option<File>> {
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| GitError("Bare repository".into()))?;
+    let full_path = workdir.join(path);
+
+    if !full_path.exists() {
         return Ok(None);
     }
 
-    let content = std::fs::read(path).map_err(|e| GitError(format!("Cannot read file: {}", e)))?;
+    let bytes =
+        std::fs::read(&full_path).map_err(|e| GitError(format!("Cannot read file: {}", e)))?;
 
-    if FileContent::is_binary(&content) {
-        Ok(Some(FileContent::Binary))
+    let content = if FileContent::is_binary_data(&bytes) {
+        FileContent::Binary
     } else {
-        let text = String::from_utf8_lossy(&content);
-        Ok(Some(FileContent::from_text(&text)))
-    }
+        let text = String::from_utf8_lossy(&bytes);
+        FileContent::from_text(&text)
+    };
+
+    Ok(Some(File {
+        path: path.to_string_lossy().to_string(),
+        content,
+    }))
 }
 
-/// Compute connections between before and after content.
+/// Compute alignments between before and after content.
 ///
-/// Uses a simple diff algorithm to find matching regions.
-fn compute_connections(
-    before: &Option<FileContent>,
-    after: &Option<FileContent>,
-) -> Vec<Connection> {
-    let before_lines = match before {
-        Some(FileContent::Text { lines }) => lines.as_slice(),
-        _ => &[],
-    };
-    let after_lines = match after {
-        Some(FileContent::Text { lines }) => lines.as_slice(),
-        _ => &[],
-    };
+/// Alignments exhaustively partition both files, marking which regions changed.
+fn compute_alignments(before: &Option<File>, after: &Option<File>) -> Vec<Alignment> {
+    let before_lines: &[String] = before
+        .as_ref()
+        .map(|f| f.content.lines())
+        .unwrap_or_default();
+    let after_lines: &[String] = after
+        .as_ref()
+        .map(|f| f.content.lines())
+        .unwrap_or_default();
 
     if before_lines.is_empty() && after_lines.is_empty() {
         return vec![];
     }
 
-    // Use a simple LCS-based approach to find matching blocks
+    // Handle simple cases: all added or all deleted
+    if before_lines.is_empty() {
+        return vec![Alignment {
+            before: Span::new(0, 0),
+            after: Span::new(0, after_lines.len() as u32),
+            changed: true,
+        }];
+    }
+
+    if after_lines.is_empty() {
+        return vec![Alignment {
+            before: Span::new(0, before_lines.len() as u32),
+            after: Span::new(0, 0),
+            changed: true,
+        }];
+    }
+
+    // Find matching blocks between the two files
     let matches = find_matching_blocks(before_lines, after_lines);
 
-    // Convert matching blocks to connections
-    // Each match represents an unchanged region; the gaps are changes
-    let mut connections = Vec::new();
+    // Convert matching blocks to alignments
+    let mut alignments = Vec::new();
     let mut before_pos = 0u32;
     let mut after_pos = 0u32;
 
@@ -262,19 +304,21 @@ fn compute_connections(
         let after_start = after_start as u32;
         let len = len as u32;
 
-        // If there's a gap before this match, that's a changed region
+        // Gap before this match = changed region
         if before_pos < before_start || after_pos < after_start {
-            connections.push(Connection {
+            alignments.push(Alignment {
                 before: Span::new(before_pos, before_start),
                 after: Span::new(after_pos, after_start),
+                changed: true,
             });
         }
 
-        // The matching region itself
+        // The matching region itself = unchanged
         if len > 0 {
-            connections.push(Connection {
+            alignments.push(Alignment {
                 before: Span::new(before_start, before_start + len),
                 after: Span::new(after_start, after_start + len),
+                changed: false,
             });
         }
 
@@ -286,13 +330,14 @@ fn compute_connections(
     let before_len = before_lines.len() as u32;
     let after_len = after_lines.len() as u32;
     if before_pos < before_len || after_pos < after_len {
-        connections.push(Connection {
+        alignments.push(Alignment {
             before: Span::new(before_pos, before_len),
             after: Span::new(after_pos, after_len),
+            changed: true,
         });
     }
 
-    connections
+    alignments
 }
 
 /// Find matching blocks between two sequences of lines.
@@ -370,16 +415,71 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_connections() {
-        let before = Some(FileContent::Text {
-            lines: vec!["a".into(), "b".into(), "c".into()],
+    fn test_compute_alignments() {
+        let before = Some(File {
+            path: "test.txt".into(),
+            content: FileContent::Text {
+                lines: vec!["a".into(), "b".into(), "c".into()],
+            },
         });
-        let after = Some(FileContent::Text {
-            lines: vec!["a".into(), "x".into(), "c".into()],
+        let after = Some(File {
+            path: "test.txt".into(),
+            content: FileContent::Text {
+                lines: vec!["a".into(), "x".into(), "c".into()],
+            },
         });
 
-        let connections = compute_connections(&before, &after);
-        // Should have connections for: "a" (unchanged), "b"->"x" (changed), "c" (unchanged)
-        assert!(!connections.is_empty());
+        let alignments = compute_alignments(&before, &after);
+
+        // Should have: "a" (unchanged), "b"->"x" (changed), "c" (unchanged)
+        assert_eq!(alignments.len(), 3);
+
+        assert!(!alignments[0].changed); // "a"
+        assert_eq!(alignments[0].before, Span::new(0, 1));
+        assert_eq!(alignments[0].after, Span::new(0, 1));
+
+        assert!(alignments[1].changed); // "b" -> "x"
+        assert_eq!(alignments[1].before, Span::new(1, 2));
+        assert_eq!(alignments[1].after, Span::new(1, 2));
+
+        assert!(!alignments[2].changed); // "c"
+        assert_eq!(alignments[2].before, Span::new(2, 3));
+        assert_eq!(alignments[2].after, Span::new(2, 3));
+    }
+
+    #[test]
+    fn test_compute_alignments_added_file() {
+        let before = None;
+        let after = Some(File {
+            path: "new.txt".into(),
+            content: FileContent::Text {
+                lines: vec!["line1".into(), "line2".into()],
+            },
+        });
+
+        let alignments = compute_alignments(&before, &after);
+
+        assert_eq!(alignments.len(), 1);
+        assert!(alignments[0].changed);
+        assert_eq!(alignments[0].before, Span::new(0, 0));
+        assert_eq!(alignments[0].after, Span::new(0, 2));
+    }
+
+    #[test]
+    fn test_compute_alignments_deleted_file() {
+        let before = Some(File {
+            path: "old.txt".into(),
+            content: FileContent::Text {
+                lines: vec!["line1".into(), "line2".into()],
+            },
+        });
+        let after = None;
+
+        let alignments = compute_alignments(&before, &after);
+
+        assert_eq!(alignments.len(), 1);
+        assert!(alignments[0].changed);
+        assert_eq!(alignments[0].before, Span::new(0, 2));
+        assert_eq!(alignments[0].after, Span::new(0, 0));
     }
 }

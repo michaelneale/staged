@@ -3,6 +3,47 @@ export interface FileStatus {
   status: 'modified' | 'added' | 'deleted' | 'renamed' | 'typechange' | 'untracked' | 'unknown';
 }
 
+// =============================================================================
+// New simplified diff types
+// =============================================================================
+
+/** Content of a file - either text lines or binary marker */
+export type FileContent = { type: 'text'; lines: string[] } | { type: 'binary' };
+
+/** A file with its path and content */
+export interface DiffFile {
+  path: string;
+  content: FileContent;
+}
+
+/** A contiguous range of lines (0-indexed, exclusive end) */
+export interface Span {
+  start: number;
+  end: number;
+}
+
+/** Maps a region in the before file to a region in the after file */
+export interface Alignment {
+  before: Span;
+  after: Span;
+  /** True if this region contains changes */
+  changed: boolean;
+}
+
+/** The diff for a single file between two states */
+export interface NewFileDiff {
+  /** File before the change (null if added) */
+  before: DiffFile | null;
+  /** File after the change (null if deleted) */
+  after: DiffFile | null;
+  /** Alignments mapping regions between before/after */
+  alignments: Alignment[];
+}
+
+// =============================================================================
+// Legacy types (to be removed)
+// =============================================================================
+
 export interface GitStatus {
   staged: FileStatus[];
   unstaged: FileStatus[];

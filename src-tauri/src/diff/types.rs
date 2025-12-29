@@ -29,20 +29,34 @@ impl DiffId {
     }
 }
 
+/// A file with its path and content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct File {
+    pub path: String,
+    pub content: FileContent,
+}
+
 /// The diff for a single file between two states.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileDiff {
-    /// The file path (uses `after` path, or `before` path if deleted)
-    pub path: String,
-    /// Content before the change (None if file was added)
-    pub before: Option<FileContent>,
-    /// Content after the change (None if file was deleted)
-    pub after: Option<FileContent>,
-    /// Mappings between regions in before/after for scroll sync
-    pub connections: Vec<Connection>,
+    /// The file before the change (None if file was added)
+    pub before: Option<File>,
+    /// The file after the change (None if file was deleted)
+    pub after: Option<File>,
+    /// Alignments mapping regions between before/after for scroll sync and display
+    pub alignments: Vec<Alignment>,
 }
 
 impl FileDiff {
+    /// Returns the primary path for this diff (prefers after, falls back to before).
+    pub fn path(&self) -> &str {
+        self.after
+            .as_ref()
+            .map(|f| f.path.as_str())
+            .or_else(|| self.before.as_ref().map(|f| f.path.as_str()))
+            .unwrap_or("")
+    }
+
     /// Returns the kind of change this file underwent.
     pub fn change_kind(&self) -> ChangeKind {
         match (&self.before, &self.after) {
@@ -51,6 +65,31 @@ impl FileDiff {
             (Some(_), Some(_)) => ChangeKind::Modified,
             (None, None) => ChangeKind::Modified, // shouldn't happen
         }
+    }
+
+    /// Returns true if this is a rename (before and after paths differ).
+    pub fn is_rename(&self) -> bool {
+        match (&self.before, &self.after) {
+            (Some(b), Some(a)) => b.path != a.path,
+            _ => false,
+        }
+    }
+
+    /// Returns true if either side is binary.
+    pub fn is_binary(&self) -> bool {
+        matches!(
+            &self.before,
+            Some(File {
+                content: FileContent::Binary,
+                ..
+            })
+        ) || matches!(
+            &self.after,
+            Some(File {
+                content: FileContent::Binary,
+                ..
+            })
+        )
     }
 }
 
@@ -79,24 +118,35 @@ impl FileContent {
     }
 
     /// Check if content appears to be binary.
-    pub fn is_binary(bytes: &[u8]) -> bool {
+    pub fn is_binary_data(bytes: &[u8]) -> bool {
         // Check for null bytes in first 8KB (common heuristic)
         let check_len = bytes.len().min(8192);
         bytes[..check_len].contains(&0)
     }
+
+    /// Get lines if this is text content.
+    pub fn lines(&self) -> &[String] {
+        match self {
+            FileContent::Text { lines } => lines,
+            FileContent::Binary => &[],
+        }
+    }
 }
 
-/// A mapping between a region in the before file and a region in the after file.
+/// An alignment between a region in the before file and a region in the after file.
 ///
-/// Used for scroll synchronization and drawing connectors between panes.
+/// Alignments exhaustively partition both files - every line belongs to exactly
+/// one alignment. Used for scroll synchronization and drawing connectors.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Connection {
+pub struct Alignment {
     pub before: Span,
     pub after: Span,
+    /// True if this region contains changes (content differs between before/after)
+    pub changed: bool,
 }
 
 /// A contiguous range of lines (0-indexed, exclusive end).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Span {
     pub start: u32,
     pub end: u32,
@@ -132,33 +182,71 @@ mod tests {
     #[test]
     fn test_change_kind() {
         let added = FileDiff {
-            path: "new.txt".into(),
             before: None,
-            after: Some(FileContent::Text { lines: vec![] }),
-            connections: vec![],
+            after: Some(File {
+                path: "new.txt".into(),
+                content: FileContent::Text { lines: vec![] },
+            }),
+            alignments: vec![],
         };
         assert_eq!(added.change_kind(), ChangeKind::Added);
 
         let deleted = FileDiff {
-            path: "old.txt".into(),
-            before: Some(FileContent::Text { lines: vec![] }),
+            before: Some(File {
+                path: "old.txt".into(),
+                content: FileContent::Text { lines: vec![] },
+            }),
             after: None,
-            connections: vec![],
+            alignments: vec![],
         };
         assert_eq!(deleted.change_kind(), ChangeKind::Deleted);
 
         let modified = FileDiff {
-            path: "changed.txt".into(),
-            before: Some(FileContent::Text { lines: vec![] }),
-            after: Some(FileContent::Text { lines: vec![] }),
-            connections: vec![],
+            before: Some(File {
+                path: "changed.txt".into(),
+                content: FileContent::Text { lines: vec![] },
+            }),
+            after: Some(File {
+                path: "changed.txt".into(),
+                content: FileContent::Text { lines: vec![] },
+            }),
+            alignments: vec![],
         };
         assert_eq!(modified.change_kind(), ChangeKind::Modified);
     }
 
     #[test]
     fn test_binary_detection() {
-        assert!(FileContent::is_binary(&[0x00, 0x01, 0x02]));
-        assert!(!FileContent::is_binary(b"hello world"));
+        assert!(FileContent::is_binary_data(&[0x00, 0x01, 0x02]));
+        assert!(!FileContent::is_binary_data(b"hello world"));
+    }
+
+    #[test]
+    fn test_is_rename() {
+        let rename = FileDiff {
+            before: Some(File {
+                path: "old_name.txt".into(),
+                content: FileContent::Text { lines: vec![] },
+            }),
+            after: Some(File {
+                path: "new_name.txt".into(),
+                content: FileContent::Text { lines: vec![] },
+            }),
+            alignments: vec![],
+        };
+        assert!(rename.is_rename());
+
+        let not_rename = FileDiff {
+            before: Some(File {
+                path: "same.txt".into(),
+                content: FileContent::Text { lines: vec![] },
+            }),
+            after: Some(File {
+                path: "same.txt".into(),
+                content: FileContent::Text { lines: vec![] },
+            }),
+            alignments: vec![],
+        };
+        assert!(!not_rename.is_rename());
     }
 }

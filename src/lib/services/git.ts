@@ -1,5 +1,47 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { GitStatus, FileDiff, CommitResult, ChangedFile, GitRef } from '../types';
+import type { GitStatus, FileDiff, CommitResult, ChangedFile, GitRef, NewFileDiff } from '../types';
+
+// =============================================================================
+// New diff API
+// =============================================================================
+
+/**
+ * Get the full diff between two refs.
+ * Returns all changed files with their content and alignments.
+ */
+export async function getDiff(
+  base: string,
+  head: string,
+  repoPath?: string
+): Promise<NewFileDiff[]> {
+  return invoke<NewFileDiff[]>('get_diff', {
+    repoPath: repoPath ?? null,
+    base,
+    head,
+  });
+}
+
+/**
+ * Get list of refs (branches, tags) for autocomplete.
+ */
+export async function getRefsV2(repoPath?: string): Promise<string[]> {
+  return invoke<string[]>('get_refs_v2', {
+    repoPath: repoPath ?? null,
+  });
+}
+
+/**
+ * Get current branch name.
+ */
+export async function getCurrentBranch(repoPath?: string): Promise<string | null> {
+  return invoke<string | null>('get_current_branch', {
+    repoPath: repoPath ?? null,
+  });
+}
+
+// =============================================================================
+// Legacy API (to be removed)
+// =============================================================================
 
 export async function getGitStatus(path?: string): Promise<GitStatus> {
   return invoke<GitStatus>('get_git_status', { path: path ?? null });

@@ -7,7 +7,7 @@ use std::path::Path;
 use git2::{Repository, Signature};
 
 use super::git::GitError;
-use super::types::Connection;
+use super::types::Alignment;
 
 type Result<T> = std::result::Result<T, GitError>;
 
@@ -51,7 +51,7 @@ pub fn discard_region(
     repo: &Repository,
     path: &str,
     base_ref: &str,
-    connection: &Connection,
+    alignment: &Alignment,
 ) -> Result<()> {
     let workdir = repo
         .workdir()
@@ -80,13 +80,13 @@ pub fn discard_region(
     let mut result = Vec::new();
 
     // Lines before the changed region in current
-    let after_start = connection.after.start as usize;
-    let after_end = connection.after.end as usize;
+    let after_start = alignment.after.start as usize;
+    let after_end = alignment.after.end as usize;
     result.extend_from_slice(&current_lines[..after_start]);
 
     // The region from base
-    let before_start = connection.before.start as usize;
-    let before_end = connection.before.end as usize;
+    let before_start = alignment.before.start as usize;
+    let before_end = alignment.before.end as usize;
     if before_end <= base_lines.len() {
         result.extend_from_slice(&base_lines[before_start..before_end]);
     }
