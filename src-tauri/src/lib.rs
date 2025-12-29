@@ -1,3 +1,4 @@
+pub mod diff;
 pub mod git;
 mod refresh;
 pub mod review;
