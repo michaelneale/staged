@@ -57,6 +57,26 @@ export function drawConnectors(
   svg.innerHTML = '';
   svg.setAttribute('shape-rendering', 'geometricPrecision');
 
+  // Clip to the code area (below the header) using verticalOffset
+  // verticalOffset is the distance from SVG top to where code content starts
+  const clipTop = Math.max(0, cfg.verticalOffset);
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  const clipPath = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
+  clipPath.setAttribute('id', 'code-area-clip');
+  const clipRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  clipRect.setAttribute('x', '0');
+  clipRect.setAttribute('y', String(clipTop));
+  clipRect.setAttribute('width', String(svgWidth));
+  clipRect.setAttribute('height', String(svgHeight - clipTop));
+  clipPath.appendChild(clipRect);
+  defs.appendChild(clipPath);
+  svg.appendChild(defs);
+
+  // Create a group with clipping applied
+  const clippedGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  clippedGroup.setAttribute('clip-path', 'url(#code-area-clip)');
+  svg.appendChild(clippedGroup);
+
   // Track index among changed alignments (to match hoveredIndex)
   let changedIndex = 0;
 
@@ -117,7 +137,7 @@ export function drawConnectors(
     fill.setAttribute('d', fillPath);
     fill.setAttribute('fill', isHovered ? hoverFillColor : fillColor);
     fill.setAttribute('stroke', 'none');
-    svg.appendChild(fill);
+    clippedGroup.appendChild(fill);
 
     // Draw top curve stroke only (no vertical edges)
     const topCurve =
@@ -130,7 +150,7 @@ export function drawConnectors(
     topStroke.setAttribute('stroke', strokeColor);
     topStroke.setAttribute('stroke-width', '1');
     topStroke.setAttribute('vector-effect', 'non-scaling-stroke');
-    svg.appendChild(topStroke);
+    clippedGroup.appendChild(topStroke);
 
     // Draw bottom curve stroke only (no vertical edges)
     // For insertions/deletions where one side is a point, bottom curve connects differently
@@ -158,6 +178,6 @@ export function drawConnectors(
     bottomStroke.setAttribute('stroke', strokeColor);
     bottomStroke.setAttribute('stroke-width', '1');
     bottomStroke.setAttribute('vector-effect', 'non-scaling-stroke');
-    svg.appendChild(bottomStroke);
+    clippedGroup.appendChild(bottomStroke);
   }
 }

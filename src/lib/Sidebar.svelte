@@ -94,8 +94,6 @@
   let files = $derived(buildFileList(diffs, review));
   let needsReview = $derived(files.filter((f) => !f.isReviewed));
   let reviewed = $derived(files.filter((f) => f.isReviewed));
-  let reviewedCount = $derived(reviewed.length);
-  let totalCount = $derived(files.length);
 
   onMount(() => {
     loadReview();
@@ -150,14 +148,6 @@
 </script>
 
 <div class="sidebar-content">
-  <div class="header">
-    {#if totalCount > 0}
-      <span class="file-counts">{reviewedCount}/{totalCount} reviewed</span>
-    {:else}
-      <span class="file-counts">Files</span>
-    {/if}
-  </div>
-
   {#if loading}
     <div class="loading">Loading...</div>
   {:else if files.length === 0}
@@ -307,19 +297,6 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
-  }
-
-  .header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    gap: 8px;
-  }
-
-  .file-counts {
-    font-size: var(--size-sm);
-    color: var(--text-muted);
   }
 
   .loading,
