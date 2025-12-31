@@ -290,8 +290,8 @@
   }
 
   .modal {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-primary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-muted);
     border-radius: 8px;
     width: 360px;
     max-width: 90vw;
@@ -303,7 +303,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border-subtle);
   }
 
   .modal-header h2 {
@@ -326,7 +326,7 @@
   }
 
   .close-btn:hover {
-    background: var(--bg-tertiary);
+    background: var(--bg-hover);
     color: var(--text-primary);
   }
 
@@ -346,7 +346,7 @@
   .field label {
     font-size: var(--size-sm);
     font-weight: 500;
-    color: var(--text-secondary);
+    color: var(--text-muted);
   }
 
   .input-wrapper {
@@ -356,8 +356,8 @@
   .field input {
     width: 100%;
     padding: 8px 10px;
-    background: var(--bg-input);
-    border: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-muted);
     border-radius: 4px;
     color: var(--text-primary);
     font-size: var(--size-sm);
@@ -367,7 +367,7 @@
 
   .field input:focus {
     outline: none;
-    border-color: var(--text-link);
+    border-color: var(--text-accent);
   }
 
   .field input:disabled {
@@ -380,8 +380,8 @@
     left: 0;
     right: 0;
     margin-top: 4px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-primary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-muted);
     border-radius: 4px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     max-height: 200px;
@@ -405,7 +405,7 @@
 
   .suggestion:hover,
   .suggestion.selected {
-    background: var(--bg-tertiary);
+    background: var(--bg-hover);
   }
 
   .ref-icon {
@@ -426,7 +426,7 @@
 
   .arrow {
     text-align: center;
-    color: var(--text-muted);
+    color: var(--text-faint);
     font-size: var(--size-lg);
   }
 
@@ -444,7 +444,7 @@
     justify-content: flex-end;
     gap: 8px;
     padding: 12px 16px;
-    border-top: 1px solid var(--border-primary);
+    border-top: 1px solid var(--border-subtle);
   }
 
   .btn {
@@ -464,22 +464,23 @@
   }
 
   .btn-secondary {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-primary);
+    background: transparent;
+    border: 1px solid var(--border-muted);
     color: var(--text-primary);
   }
 
   .btn-secondary:hover:not(:disabled) {
-    background: var(--bg-input);
+    background: var(--bg-hover);
   }
 
   .btn-primary {
-    background: var(--text-link);
-    border: 1px solid var(--text-link);
-    color: var(--bg-primary);
+    background: var(--ui-accent);
+    border: 1px solid var(--ui-accent);
+    color: white;
   }
 
   .btn-primary:hover:not(:disabled) {
-    opacity: 0.9;
+    background: var(--ui-accent-hover);
+    border-color: var(--ui-accent-hover);
   }
 </style>

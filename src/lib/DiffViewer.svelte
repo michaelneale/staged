@@ -406,7 +406,9 @@
   }
 
   onMount(() => {
-    initHighlighter('github-dark').then(() => {
+    // Highlighter is initialized by App with the saved theme.
+    // We just wait for it to be ready (initHighlighter is idempotent).
+    initHighlighter().then(() => {
       const theme = getTheme();
       if (theme) themeBg = theme.bg;
       highlighterReady = true;
@@ -668,12 +670,13 @@
     flex: 1;
   }
 
+  /* Spine - minimal, same bg as code, just a thin gap */
   .spine {
-    width: 24px;
+    width: 20px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    background-color: var(--bg-secondary);
+    background-color: var(--bg-primary);
   }
 
   .spine-connector,
@@ -716,11 +719,12 @@
     white-space: pre;
   }
 
-  /* Changed line highlight - fills full width of lines-wrapper */
+  /* Changed line highlight */
   .line.content-changed {
-    background-color: var(--diff-added-overlay);
+    background-color: var(--diff-added-bg);
   }
 
+  /* Range boundary markers - visible but not distracting */
   .line.range-start::before {
     content: '';
     position: absolute;
@@ -728,8 +732,7 @@
     left: 0;
     right: 0;
     height: 1px;
-    background-color: var(--diff-line-number);
-    opacity: 0.7;
+    background-color: var(--diff-range-border);
   }
 
   .line.range-end::after {
@@ -739,12 +742,11 @@
     left: 0;
     right: 0;
     height: 1px;
-    background-color: var(--diff-line-number);
-    opacity: 0.7;
+    background-color: var(--diff-range-border);
   }
 
   .line.range-hovered {
-    background-color: var(--bg-tertiary);
+    background-color: var(--bg-hover);
   }
 
   .empty-state,
@@ -770,8 +772,8 @@
     gap: 1px;
     transform: translateY(-100%);
     z-index: 100;
-    background-color: var(--bg-secondary);
-    border: 1px solid var(--border-primary);
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border-muted);
     border-bottom: none;
     border-radius: 4px 4px 0 0;
   }
@@ -792,7 +794,7 @@
   }
 
   .range-btn:hover {
-    background-color: var(--bg-tertiary);
+    background-color: var(--bg-hover);
   }
 
   .range-btn.discard-btn:hover {

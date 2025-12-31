@@ -133,8 +133,9 @@
     const saved = localStorage.getItem(SYNTAX_THEME_STORAGE_KEY);
     if (saved && SYNTAX_THEMES.includes(saved as SyntaxThemeName)) {
       currentSyntaxTheme = saved as SyntaxThemeName;
-      await setSyntaxTheme(currentSyntaxTheme);
     }
+    // Always initialize highlighter with the current theme (saved or default)
+    await setSyntaxTheme(currentSyntaxTheme);
     // Apply adaptive theme from syntax theme colors
     applyAdaptiveTheme();
   }
@@ -459,13 +460,13 @@
     overflow: hidden;
   }
 
-  /* Diff selector header */
+  /* Header - floating style, blends with content */
   .diff-header {
     display: flex;
     align-items: center;
-    padding: 8px 16px;
-    background-color: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-primary);
+    padding: 6px 12px;
+    background-color: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
   }
 
@@ -476,11 +477,11 @@
   .diff-selector {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 10px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-primary);
-    border-radius: 6px;
+    gap: 6px;
+    padding: 4px 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
     color: var(--text-primary);
     font-size: var(--size-sm);
     cursor: pointer;
@@ -490,13 +491,12 @@
   }
 
   .diff-selector:hover {
-    background-color: var(--bg-input);
-    border-color: var(--text-muted);
+    background-color: var(--bg-hover);
   }
 
   .diff-selector.open {
-    background-color: var(--bg-input);
-    border-color: var(--text-link);
+    background-color: var(--bg-hover);
+    border-color: var(--border-muted);
   }
 
   .diff-label {
@@ -508,10 +508,10 @@
     top: 100%;
     left: 0;
     margin-top: 4px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-primary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-muted);
     border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
     min-width: 200px;
     z-index: 100;
     overflow: hidden;
@@ -534,7 +534,7 @@
   }
 
   .diff-option:hover {
-    background-color: var(--bg-tertiary);
+    background-color: var(--bg-hover);
   }
 
   .diff-option.selected {
@@ -553,7 +553,7 @@
 
   .dropdown-divider {
     height: 1px;
-    background: var(--border-primary);
+    background: var(--border-subtle);
     margin: 4px 0;
   }
 
@@ -564,10 +564,10 @@
   }
 
   .sidebar {
-    width: 280px;
-    min-width: 200px;
-    background-color: var(--bg-secondary);
-    border-left: 1px solid var(--border-primary);
+    width: 260px;
+    min-width: 180px;
+    background-color: var(--bg-sunken);
+    border-left: 1px solid var(--border-subtle);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -606,7 +606,7 @@
     margin-top: 8px;
   }
 
-  /* Theme picker */
+  /* Theme picker - minimal */
   .theme-picker {
     margin-left: auto;
     display: flex;
@@ -616,25 +616,26 @@
 
   .picker-label {
     font-size: var(--size-xs);
-    color: var(--text-muted);
+    color: var(--text-faint);
   }
 
   .theme-select {
-    padding: 3px 6px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-primary);
+    padding: 2px 4px;
+    background: transparent;
+    border: 1px solid transparent;
     border-radius: 4px;
-    color: var(--text-primary);
+    color: var(--text-muted);
     font-size: var(--size-xs);
     cursor: pointer;
   }
 
   .theme-select:hover {
-    border-color: var(--text-muted);
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
   }
 
   .theme-select:focus {
     outline: none;
-    border-color: var(--text-link);
+    border-color: var(--border-muted);
   }
 </style>

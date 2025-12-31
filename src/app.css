@@ -3,6 +3,11 @@
  *
  * Uses CSS custom properties defined by the theme system.
  * See src/lib/theme.ts for the theme definition.
+ *
+ * Design philosophy:
+ * - The code IS the interface - minimize chrome
+ * - Boundaries through subtle contrast, not heavy borders
+ * - Horizontal space is precious - every pixel counts
  */
 
 * {
@@ -10,69 +15,55 @@
 }
 
 :root {
-  /* Theme colors - these are set by ThemeProvider or can be overridden */
-  --bg-primary: #1e1e1e;
-  --bg-secondary: #252526;
-  --bg-tertiary: #2d2d2d;
-  --bg-input: #3c3c3c;
+  /* Theme colors - defaults, overridden by adaptive theme */
+  --theme-is-dark: 1;
 
-  --border-primary: #3c3c3c;
+  --bg-primary: #1e1e1e;
+  --bg-elevated: #252526;
+  --bg-sunken: #1a1a1a;
+  --bg-hover: #2d2d2d;
+
   --border-subtle: #2d2d2d;
+  --border-muted: #3c3c3c;
+  --border-emphasis: #505050;
 
   --text-primary: #d4d4d4;
-  --text-secondary: #cccccc;
   --text-muted: #888888;
-  --text-link: #4fc1ff;
+  --text-faint: #555555;
+  --text-accent: #58a6ff;
 
-  --status-modified: #e2c08d;
-  --status-added: #89d185;
-  --status-deleted: #f14c4c;
-  --status-renamed: #4fc1ff;
+  --status-modified: #d29922;
+  --status-added: #3fb950;
+  --status-deleted: #f85149;
+  --status-renamed: #58a6ff;
   --status-untracked: #888888;
 
-  --diff-added-overlay: rgba(110, 118, 129, 0.1);
-  --diff-removed-overlay: rgba(110, 118, 129, 0.1);
-  --diff-added-text: #7ee787;
-  --diff-removed-text: #f85149;
-  --diff-line-number: #6e7681;
-  --diff-empty-bg: #2d2d2d;
-  --diff-header-bg: #2d2d2d;
+  --diff-added-bg: rgba(63, 185, 80, 0.08);
+  --diff-removed-bg: rgba(248, 81, 73, 0.08);
+  --diff-range-border: #505050;
 
-  --ui-accent: #0e639c;
-  --ui-accent-hover: #1177bb;
-  --ui-danger: #5a1d1d;
-  --ui-danger-hover: #742a2a;
-  --ui-success: #2ea043;
-  --ui-selection: #094771;
+  --ui-accent: #238636;
+  --ui-accent-hover: #2ea043;
+  --ui-danger: #da3633;
+  --ui-selection: rgba(88, 166, 255, 0.2);
 
-  --syntax-keyword: #569cd6;
-  --syntax-string: #ce9178;
-  --syntax-number: #b5cea8;
-  --syntax-comment: #6a9955;
-  --syntax-function: #dcdcaa;
-  --syntax-variable: #9cdcfe;
-  --syntax-type: #4ec9b0;
-  --syntax-operator: #d4d4d4;
-  --syntax-punctuation: #d4d4d4;
-
-  --scrollbar-track: #1e1e1e;
-  --scrollbar-thumb: #424242;
-  --scrollbar-thumb-hover: #4f4f4f;
+  --scrollbar-thumb: #3c3c3c;
+  --scrollbar-thumb-hover: #505050;
 
   /* 
    * Size scale - all sizes derive from --size-base
-   * Adjust --size-base to scale the entire UI (e.g., for CMD+SHIFT+PLUS/MINUS)
+   * Adjust --size-base to scale the entire UI
    */
   --size-base: 13px;
-  --size-xs: calc(var(--size-base) * 0.846); /* ~11px at base 13 */
-  --size-sm: calc(var(--size-base) * 0.923); /* ~12px at base 13 */
+  --size-xs: calc(var(--size-base) * 0.846); /* ~11px */
+  --size-sm: calc(var(--size-base) * 0.923); /* ~12px */
   --size-md: var(--size-base); /* 13px */
-  --size-lg: calc(var(--size-base) * 1.077); /* ~14px at base 13 */
-  --size-xl: calc(var(--size-base) * 1.231); /* ~16px at base 13 */
+  --size-lg: calc(var(--size-base) * 1.077); /* ~14px */
+  --size-xl: calc(var(--size-base) * 1.231); /* ~16px */
 
   /* Typography */
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  font-size: var(--size-lg);
+  font-size: var(--size-md);
   line-height: 1.5;
   font-weight: 400;
 
@@ -91,21 +82,26 @@ body {
   min-height: 100vh;
 }
 
-/* Scrollbar styling */
+/* Minimal scrollbar - track is invisible, just show thumb */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 5px;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
+}
+
+/* Hide scrollbar in code areas - they have their own scroll handling */
+.code-container::-webkit-scrollbar {
+  display: none;
 }

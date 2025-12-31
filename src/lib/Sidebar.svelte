@@ -314,7 +314,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border-subtle);
     gap: 8px;
   }
 
@@ -364,14 +364,14 @@
     content: '';
     flex: 1;
     height: 1px;
-    background: var(--border-primary);
+    background: var(--border-subtle);
   }
 
   .divider-label {
     font-size: 9px;
     font-weight: 500;
     letter-spacing: 0.5px;
-    color: var(--text-muted);
+    color: var(--text-faint);
     text-transform: uppercase;
   }
 
@@ -390,7 +390,7 @@
   }
 
   .file-item:hover {
-    background-color: var(--bg-tertiary);
+    background-color: var(--bg-hover);
   }
 
   .file-item.selected {
@@ -416,7 +416,7 @@
   }
 
   .status-icon:hover {
-    background-color: var(--bg-input);
+    background-color: var(--bg-hover);
     color: var(--status-added);
   }
 

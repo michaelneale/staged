@@ -33,18 +33,70 @@ let currentTheme: HighlighterTheme | null = null;
 let currentThemeName: string = 'github-dark';
 let initPromise: Promise<void> | null = null;
 
-// Available syntax themes (curated set that work well)
+// Available syntax themes (all Shiki bundled themes)
 export const SYNTAX_THEMES = [
-  'github-dark',
-  'github-dark-dimmed',
-  'one-dark-pro',
-  'dracula',
-  'nord',
-  'vitesse-dark',
-  'tokyo-night',
+  // Dark themes
+  'andromeeda',
+  'aurora-x',
+  'ayu-dark',
+  'catppuccin-frappe',
+  'catppuccin-macchiato',
   'catppuccin-mocha',
-  'rose-pine-moon',
+  'dark-plus',
+  'dracula',
+  'dracula-soft',
+  'everforest-dark',
+  'github-dark',
+  'github-dark-default',
+  'github-dark-dimmed',
+  'github-dark-high-contrast',
+  'gruvbox-dark-hard',
+  'gruvbox-dark-medium',
+  'gruvbox-dark-soft',
+  'houston',
+  'kanagawa-dragon',
+  'kanagawa-wave',
+  'laserwave',
+  'material-theme',
+  'material-theme-darker',
+  'material-theme-ocean',
+  'material-theme-palenight',
   'min-dark',
+  'monokai',
+  'night-owl',
+  'nord',
+  'one-dark-pro',
+  'plastic',
+  'poimandres',
+  'red',
+  'rose-pine',
+  'rose-pine-moon',
+  'slack-dark',
+  'solarized-dark',
+  'synthwave-84',
+  'tokyo-night',
+  'vesper',
+  'vitesse-black',
+  'vitesse-dark',
+  // Light themes
+  'catppuccin-latte',
+  'everforest-light',
+  'github-light',
+  'github-light-default',
+  'github-light-high-contrast',
+  'gruvbox-light-hard',
+  'gruvbox-light-medium',
+  'gruvbox-light-soft',
+  'kanagawa-lotus',
+  'light-plus',
+  'material-theme-lighter',
+  'min-light',
+  'one-light',
+  'rose-pine-dawn',
+  'slack-ochin',
+  'snazzy-light',
+  'solarized-light',
+  'vitesse-light',
 ] as const;
 
 export type SyntaxThemeName = (typeof SYNTAX_THEMES)[number];
@@ -52,16 +104,68 @@ export type SyntaxThemeName = (typeof SYNTAX_THEMES)[number];
 // Static theme imports (Vite can't handle dynamic imports for these)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const themeImports: Record<SyntaxThemeName, () => Promise<any>> = {
-  'github-dark': () => import('shiki/themes/github-dark.mjs'),
-  'github-dark-dimmed': () => import('shiki/themes/github-dark-dimmed.mjs'),
-  'one-dark-pro': () => import('shiki/themes/one-dark-pro.mjs'),
-  dracula: () => import('shiki/themes/dracula.mjs'),
-  nord: () => import('shiki/themes/nord.mjs'),
-  'vitesse-dark': () => import('shiki/themes/vitesse-dark.mjs'),
-  'tokyo-night': () => import('shiki/themes/tokyo-night.mjs'),
+  // Dark themes
+  andromeeda: () => import('shiki/themes/andromeeda.mjs'),
+  'aurora-x': () => import('shiki/themes/aurora-x.mjs'),
+  'ayu-dark': () => import('shiki/themes/ayu-dark.mjs'),
+  'catppuccin-frappe': () => import('shiki/themes/catppuccin-frappe.mjs'),
+  'catppuccin-macchiato': () => import('shiki/themes/catppuccin-macchiato.mjs'),
   'catppuccin-mocha': () => import('shiki/themes/catppuccin-mocha.mjs'),
-  'rose-pine-moon': () => import('shiki/themes/rose-pine-moon.mjs'),
+  'dark-plus': () => import('shiki/themes/dark-plus.mjs'),
+  dracula: () => import('shiki/themes/dracula.mjs'),
+  'dracula-soft': () => import('shiki/themes/dracula-soft.mjs'),
+  'everforest-dark': () => import('shiki/themes/everforest-dark.mjs'),
+  'github-dark': () => import('shiki/themes/github-dark.mjs'),
+  'github-dark-default': () => import('shiki/themes/github-dark-default.mjs'),
+  'github-dark-dimmed': () => import('shiki/themes/github-dark-dimmed.mjs'),
+  'github-dark-high-contrast': () => import('shiki/themes/github-dark-high-contrast.mjs'),
+  'gruvbox-dark-hard': () => import('shiki/themes/gruvbox-dark-hard.mjs'),
+  'gruvbox-dark-medium': () => import('shiki/themes/gruvbox-dark-medium.mjs'),
+  'gruvbox-dark-soft': () => import('shiki/themes/gruvbox-dark-soft.mjs'),
+  houston: () => import('shiki/themes/houston.mjs'),
+  'kanagawa-dragon': () => import('shiki/themes/kanagawa-dragon.mjs'),
+  'kanagawa-wave': () => import('shiki/themes/kanagawa-wave.mjs'),
+  laserwave: () => import('shiki/themes/laserwave.mjs'),
+  'material-theme': () => import('shiki/themes/material-theme.mjs'),
+  'material-theme-darker': () => import('shiki/themes/material-theme-darker.mjs'),
+  'material-theme-ocean': () => import('shiki/themes/material-theme-ocean.mjs'),
+  'material-theme-palenight': () => import('shiki/themes/material-theme-palenight.mjs'),
   'min-dark': () => import('shiki/themes/min-dark.mjs'),
+  monokai: () => import('shiki/themes/monokai.mjs'),
+  'night-owl': () => import('shiki/themes/night-owl.mjs'),
+  nord: () => import('shiki/themes/nord.mjs'),
+  'one-dark-pro': () => import('shiki/themes/one-dark-pro.mjs'),
+  plastic: () => import('shiki/themes/plastic.mjs'),
+  poimandres: () => import('shiki/themes/poimandres.mjs'),
+  red: () => import('shiki/themes/red.mjs'),
+  'rose-pine': () => import('shiki/themes/rose-pine.mjs'),
+  'rose-pine-moon': () => import('shiki/themes/rose-pine-moon.mjs'),
+  'slack-dark': () => import('shiki/themes/slack-dark.mjs'),
+  'solarized-dark': () => import('shiki/themes/solarized-dark.mjs'),
+  'synthwave-84': () => import('shiki/themes/synthwave-84.mjs'),
+  'tokyo-night': () => import('shiki/themes/tokyo-night.mjs'),
+  vesper: () => import('shiki/themes/vesper.mjs'),
+  'vitesse-black': () => import('shiki/themes/vitesse-black.mjs'),
+  'vitesse-dark': () => import('shiki/themes/vitesse-dark.mjs'),
+  // Light themes
+  'catppuccin-latte': () => import('shiki/themes/catppuccin-latte.mjs'),
+  'everforest-light': () => import('shiki/themes/everforest-light.mjs'),
+  'github-light': () => import('shiki/themes/github-light.mjs'),
+  'github-light-default': () => import('shiki/themes/github-light-default.mjs'),
+  'github-light-high-contrast': () => import('shiki/themes/github-light-high-contrast.mjs'),
+  'gruvbox-light-hard': () => import('shiki/themes/gruvbox-light-hard.mjs'),
+  'gruvbox-light-medium': () => import('shiki/themes/gruvbox-light-medium.mjs'),
+  'gruvbox-light-soft': () => import('shiki/themes/gruvbox-light-soft.mjs'),
+  'kanagawa-lotus': () => import('shiki/themes/kanagawa-lotus.mjs'),
+  'light-plus': () => import('shiki/themes/light-plus.mjs'),
+  'material-theme-lighter': () => import('shiki/themes/material-theme-lighter.mjs'),
+  'min-light': () => import('shiki/themes/min-light.mjs'),
+  'one-light': () => import('shiki/themes/one-light.mjs'),
+  'rose-pine-dawn': () => import('shiki/themes/rose-pine-dawn.mjs'),
+  'slack-ochin': () => import('shiki/themes/slack-ochin.mjs'),
+  'snazzy-light': () => import('shiki/themes/snazzy-light.mjs'),
+  'solarized-light': () => import('shiki/themes/solarized-light.mjs'),
+  'vitesse-light': () => import('shiki/themes/vitesse-light.mjs'),
 };
 
 // Theme change listeners
@@ -340,28 +444,29 @@ const EXTENSION_MAP: Record<string, BundledLanguage> = {
   ltx: 'latex',
 };
 
-/**
- * Known comment colors for each syntax theme.
- * Extracted from the theme definitions - more reliable than parsing at runtime.
- */
-const THEME_COMMENT_COLORS: Record<SyntaxThemeName, string> = {
-  'github-dark': '#8b949e',
-  'github-dark-dimmed': '#768390',
-  'one-dark-pro': '#7f848e',
-  dracula: '#6272a4',
-  nord: '#616e88',
-  'vitesse-dark': '#758575',
-  'tokyo-night': '#565f89',
-  'catppuccin-mocha': '#6c7086',
-  'rose-pine-moon': '#6e6a86',
-  'min-dark': '#6b737c',
-};
+// Theme settings type from Shiki (not exported, so we define it here)
+interface ThemeSetting {
+  scope?: string | string[];
+  settings?: { foreground?: string };
+}
 
 /**
- * Get the comment color for a theme.
+ * Extract the comment color from a theme's token settings.
+ * Falls back to the provided fallback color if not found.
  */
-function getCommentColor(themeName: string, fallback: string): string {
-  return THEME_COMMENT_COLORS[themeName as SyntaxThemeName] || fallback;
+function extractCommentColor(settings: ThemeSetting[] | undefined, fallback: string): string {
+  if (!settings) return fallback;
+
+  for (const setting of settings) {
+    if (!setting.scope || !setting.settings?.foreground) continue;
+
+    const scopes = Array.isArray(setting.scope) ? setting.scope : [setting.scope];
+    if (scopes.includes('comment')) {
+      return setting.settings.foreground;
+    }
+  }
+
+  return fallback;
 }
 
 /**
@@ -399,7 +504,7 @@ export async function initHighlighter(themeName: string = 'github-dark'): Promis
       name: themeName,
       bg: theme.bg || '#1e1e1e',
       fg,
-      comment: getCommentColor(themeName, fg),
+      comment: extractCommentColor(theme.settings as ThemeSetting[], fg),
     };
   })();
 
@@ -574,7 +679,7 @@ export async function setSyntaxTheme(themeName: SyntaxThemeName): Promise<void> 
     name: themeName,
     bg: theme.bg || '#1e1e1e',
     fg,
-    comment: getCommentColor(themeName, fg),
+    comment: extractCommentColor(theme.settings as ThemeSetting[], fg),
   };
 
   // Notify listeners
