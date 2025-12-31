@@ -119,7 +119,7 @@
     onFileSelect?.(file.path);
   }
 
-  async function toggleReviewed(event: MouseEvent, file: FileEntry) {
+  async function toggleReviewed(event: MouseEvent | KeyboardEvent, file: FileEntry) {
     event.stopPropagation();
     try {
       if (file.isReviewed) {
@@ -165,58 +165,61 @@
       {#if needsReview.length > 0}
         <ul class="file-section">
           {#each needsReview as file (file.path)}
-            <li
-              class="file-item"
-              class:selected={selectedFile === file.path}
-              onclick={() => selectFile(file)}
-              tabindex="0"
-              role="button"
-            >
-              <!-- Status icon - clickable to toggle reviewed -->
+            <li class="file-item-wrapper">
               <button
-                class="status-icon"
-                onclick={(e) => toggleReviewed(e, file)}
-                title="Mark as reviewed"
+                class="file-item"
+                class:selected={selectedFile === file.path}
+                onclick={() => selectFile(file)}
               >
-                <!-- Default icon (hidden on hover) -->
-                <span class="icon-default">
-                  {#if file.status === 'added'}
-                    {#if isWorkingTree}
-                      <CircleFadingPlus size={16} />
+                <!-- Status icon - clickable to toggle reviewed -->
+                <span
+                  class="status-icon"
+                  onclick={(e) => toggleReviewed(e, file)}
+                  onkeydown={(e) => e.key === 'Enter' && toggleReviewed(e, file)}
+                  role="button"
+                  tabindex="0"
+                  title="Mark as reviewed"
+                >
+                  <!-- Default icon (hidden on hover) -->
+                  <span class="icon-default">
+                    {#if file.status === 'added'}
+                      {#if isWorkingTree}
+                        <CircleFadingPlus size={16} />
+                      {:else}
+                        <CirclePlus size={16} />
+                      {/if}
+                    {:else if file.status === 'deleted'}
+                      {#if isWorkingTree}
+                        <CircleX size={16} />
+                      {:else}
+                        <CircleMinus size={16} />
+                      {/if}
+                    {:else if isWorkingTree}
+                      <CircleFadingArrowUp size={16} />
                     {:else}
-                      <CirclePlus size={16} />
+                      <CircleArrowUp size={16} />
                     {/if}
-                  {:else if file.status === 'deleted'}
-                    {#if isWorkingTree}
-                      <CircleX size={16} />
-                    {:else}
-                      <CircleMinus size={16} />
-                    {/if}
-                  {:else if isWorkingTree}
-                    <CircleFadingArrowUp size={16} />
-                  {:else}
-                    <CircleArrowUp size={16} />
-                  {/if}
+                  </span>
+                  <!-- Hover icon (checkmark for "mark as reviewed") -->
+                  <span class="icon-hover">
+                    <Check size={16} />
+                  </span>
                 </span>
-                <!-- Hover icon (checkmark for "mark as reviewed") -->
-                <span class="icon-hover">
-                  <Check size={16} />
+
+                <!-- File path -->
+                <span class="file-path">
+                  <span class="file-dir">{getFileDir(file.path)}</span>
+                  <span class="file-name">{getFileName(file.path)}</span>
                 </span>
+
+                <!-- Comment indicator -->
+                {#if file.commentCount > 0}
+                  <span class="comment-indicator">
+                    <MessageSquare size={12} />
+                    <span class="comment-count">{file.commentCount}</span>
+                  </span>
+                {/if}
               </button>
-
-              <!-- File path -->
-              <span class="file-path">
-                <span class="file-dir">{getFileDir(file.path)}</span>
-                <span class="file-name">{getFileName(file.path)}</span>
-              </span>
-
-              <!-- Comment indicator -->
-              {#if file.commentCount > 0}
-                <span class="comment-indicator">
-                  <MessageSquare size={12} />
-                  <span class="comment-count">{file.commentCount}</span>
-                </span>
-              {/if}
             </li>
           {/each}
         </ul>
@@ -233,56 +236,59 @@
       {#if reviewed.length > 0}
         <ul class="file-section reviewed-section">
           {#each reviewed as file (file.path)}
-            <li
-              class="file-item"
-              class:selected={selectedFile === file.path}
-              onclick={() => selectFile(file)}
-              tabindex="0"
-              role="button"
-            >
-              <!-- Status icon - clickable to toggle reviewed -->
+            <li class="file-item-wrapper">
               <button
-                class="status-icon"
-                onclick={(e) => toggleReviewed(e, file)}
-                title="Mark as needs review"
+                class="file-item"
+                class:selected={selectedFile === file.path}
+                onclick={() => selectFile(file)}
               >
-                <!-- Default icon (hidden on hover) -->
-                <span class="icon-default">
-                  {#if file.status === 'added'}
-                    {#if isWorkingTree}
-                      <CircleFadingPlus size={16} />
+                <!-- Status icon - clickable to toggle reviewed -->
+                <span
+                  class="status-icon"
+                  onclick={(e) => toggleReviewed(e, file)}
+                  onkeydown={(e) => e.key === 'Enter' && toggleReviewed(e, file)}
+                  role="button"
+                  tabindex="0"
+                  title="Mark as needs review"
+                >
+                  <!-- Default icon (hidden on hover) -->
+                  <span class="icon-default">
+                    {#if file.status === 'added'}
+                      {#if isWorkingTree}
+                        <CircleFadingPlus size={16} />
+                      {:else}
+                        <CirclePlus size={16} />
+                      {/if}
+                    {:else if file.status === 'deleted'}
+                      {#if isWorkingTree}
+                        <CircleX size={16} />
+                      {:else}
+                        <CircleMinus size={16} />
+                      {/if}
+                    {:else if isWorkingTree}
+                      <CircleFadingArrowUp size={16} />
                     {:else}
-                      <CirclePlus size={16} />
+                      <CircleArrowUp size={16} />
                     {/if}
-                  {:else if file.status === 'deleted'}
-                    {#if isWorkingTree}
-                      <CircleX size={16} />
-                    {:else}
-                      <CircleMinus size={16} />
-                    {/if}
-                  {:else if isWorkingTree}
-                    <CircleFadingArrowUp size={16} />
-                  {:else}
-                    <CircleArrowUp size={16} />
-                  {/if}
+                  </span>
+                  <!-- Hover icon (rotate for "unmark as reviewed") -->
+                  <span class="icon-hover icon-hover-unreview">
+                    <RotateCcw size={16} />
+                  </span>
                 </span>
-                <!-- Hover icon (rotate for "unmark as reviewed") -->
-                <span class="icon-hover icon-hover-unreview">
-                  <RotateCcw size={16} />
+
+                <span class="file-path">
+                  <span class="file-dir">{getFileDir(file.path)}</span>
+                  <span class="file-name">{getFileName(file.path)}</span>
                 </span>
+
+                {#if file.commentCount > 0}
+                  <span class="comment-indicator">
+                    <MessageSquare size={12} />
+                    <span class="comment-count">{file.commentCount}</span>
+                  </span>
+                {/if}
               </button>
-
-              <span class="file-path">
-                <span class="file-dir">{getFileDir(file.path)}</span>
-                <span class="file-name">{getFileName(file.path)}</span>
-              </span>
-
-              {#if file.commentCount > 0}
-                <span class="comment-indicator">
-                  <MessageSquare size={12} />
-                  <span class="comment-count">{file.commentCount}</span>
-                </span>
-              {/if}
             </li>
           {/each}
         </ul>
@@ -355,9 +361,15 @@
     opacity: 0.7;
   }
 
+  .file-item-wrapper {
+    margin: 0;
+    padding: 0;
+  }
+
   .file-item {
     display: flex;
     align-items: center;
+    width: 100%;
     padding: 3px 8px;
     font-size: var(--size-md);
     gap: 6px;
@@ -365,6 +377,11 @@
     position: relative;
     border-radius: 6px;
     margin: 0 4px;
+    background: none;
+    border: none;
+    text-align: left;
+    color: inherit;
+    font-family: inherit;
     transition:
       background-color 0.1s,
       box-shadow 0.1s;
@@ -378,7 +395,12 @@
     background-color: var(--bg-primary);
   }
 
-  /* Status icon as button */
+  .file-item:focus-visible {
+    outline: 2px solid var(--text-accent);
+    outline-offset: -2px;
+  }
+
+  /* Status icon as interactive span */
   .status-icon {
     display: flex;
     align-items: center;
@@ -399,6 +421,11 @@
   .status-icon:hover {
     background-color: var(--bg-hover);
     color: var(--status-added);
+  }
+
+  .status-icon:focus-visible {
+    outline: 2px solid var(--text-accent);
+    outline-offset: 0;
   }
 
   /* Icon swap on hover */

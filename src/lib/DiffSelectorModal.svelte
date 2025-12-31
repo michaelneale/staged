@@ -21,8 +21,9 @@
 
   let { open, onClose, onSelect, currentBase = 'HEAD', currentHead = '@' }: Props = $props();
 
-  let baseRef = $state(currentBase);
-  let headRef = $state(currentHead);
+  // Initialize empty - the $effect below sets values when modal opens
+  let baseRef = $state('');
+  let headRef = $state('');
   let error = $state<string | null>(null);
   let validating = $state(false);
 
@@ -183,6 +184,7 @@
     onclick={handleBackdropClick}
     onkeydown={handleModalKeydown}
     role="dialog"
+    tabindex="-1"
   >
     <div class="modal">
       <div class="modal-header">

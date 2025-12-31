@@ -236,6 +236,28 @@
     diffSelectorOpen = false;
   }
 
+  // Close dropdown when clicking outside
+  $effect(() => {
+    if (!diffSelectorOpen) return;
+
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      // Don't close if clicking inside the dropdown or the toggle button
+      if (target.closest('.diff-selector-container')) return;
+      closeDiffSelector();
+    }
+
+    // Use setTimeout to avoid closing immediately from the same click that opened it
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('click', handleClickOutside);
+    };
+  });
+
   // ==========================================================================
   // Diff State
   // ==========================================================================
@@ -355,18 +377,14 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<main onclick={closeDiffSelector}>
+<main>
   <!-- Diff selector header -->
   <header class="diff-header">
     <div class="diff-selector-container">
       <button
         class="diff-selector"
         class:open={diffSelectorOpen}
-        onclick={(e) => {
-          e.stopPropagation();
-          toggleDiffSelector();
-        }}
+        onclick={toggleDiffSelector}
         title={tooltipText()}
       >
         <span class="diff-label">{displayLabel}</span>
@@ -374,8 +392,7 @@
       </button>
 
       {#if diffSelectorOpen}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="diff-dropdown" onclick={(e) => e.stopPropagation()}>
+        <div class="diff-dropdown">
           {#each DIFF_PRESETS as preset}
             <button
               class="diff-option"
