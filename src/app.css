@@ -15,46 +15,55 @@
 }
 
 :root {
-  /* Theme colors - defaults, overridden by adaptive theme */
+  /*
+   * Theme colors - Default: laserwave
+   * 
+   * These are pre-computed from createAdaptiveTheme() for the default syntax theme.
+   * They're immediately overwritten by the adaptive theme system on mount, but
+   * having them here prevents any flash of unstyled content.
+   * 
+   * To regenerate: run the theme through createAdaptiveTheme(bg, fg, comment)
+   * Laserwave: bg=#27212e, fg=#ffffff, comment=#91889b
+   */
   --theme-is-dark: 1;
 
-  --bg-primary: #1e1e1e;
-  --bg-chrome: #0f0f0f;
-  --bg-elevated: #252526;
-  --bg-hover: #2d2d2d;
+  --bg-primary: #27212e;
+  --bg-chrome: #18151d;
+  --bg-elevated: #38333f;
+  --bg-hover: #342e3b;
 
-  --border-subtle: #2d2d2d;
-  --border-muted: #3c3c3c;
-  --border-emphasis: #505050;
+  --border-subtle: #38333f;
+  --border-muted: #47424d;
+  --border-emphasis: #5d5962;
 
-  --text-primary: #d4d4d4;
-  --text-muted: #888888;
-  --text-faint: #555555;
+  --text-primary: #ffffff;
+  --text-muted: #91889b;
+  --text-faint: #5c5565;
   --text-accent: #58a6ff;
 
   --status-modified: #d29922;
   --status-added: #3fb950;
   --status-deleted: #f85149;
   --status-renamed: #58a6ff;
-  --status-untracked: #888888;
+  --status-untracked: #91889b;
 
   --diff-added-bg: rgba(63, 185, 80, 0.08);
   --diff-removed-bg: rgba(248, 81, 73, 0.08);
-  --diff-changed-bg: rgba(212, 212, 212, 0.04);
-  --diff-range-border: #505050;
+  --diff-changed-bg: rgba(255, 255, 255, 0.04);
+  --diff-range-border: #524d58;
 
-  --ui-accent: #238636;
+  --ui-accent: #3fb950;
   --ui-accent-hover: #2ea043;
-  --ui-danger: #da3633;
+  --ui-danger: #f85149;
   --ui-danger-bg: rgba(248, 81, 73, 0.1);
-  --ui-selection: rgba(212, 212, 212, 0.08);
+  --ui-selection: rgba(255, 255, 255, 0.08);
 
-  --scrollbar-thumb: #3c3c3c;
-  --scrollbar-thumb-hover: #505050;
+  --scrollbar-thumb: #47424d;
+  --scrollbar-thumb-hover: #5d5962;
 
   --shadow-overlay: rgba(0, 0, 0, 0.6);
   --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.4);
-  --shadow-glow: 0 0 0 1px rgba(212, 212, 212, 0.1);
+  --shadow-glow: 0 0 0 1px rgba(255, 255, 255, 0.1);
 
   /* 
    * Size scale - all sizes derive from --size-base

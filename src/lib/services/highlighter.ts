@@ -30,7 +30,7 @@ export interface HighlighterTheme {
 // Singleton highlighter instance
 let highlighter: Highlighter | null = null;
 let currentTheme: HighlighterTheme | null = null;
-let currentThemeName: string = 'github-dark';
+let currentThemeName: string = 'laserwave';
 let initPromise: Promise<void> | null = null;
 
 // Available syntax themes (all Shiki bundled themes)

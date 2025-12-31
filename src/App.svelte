@@ -125,7 +125,7 @@
 
   const SYNTAX_THEME_STORAGE_KEY = 'staged-syntax-theme';
 
-  let currentSyntaxTheme = $state<SyntaxThemeName>('github-dark');
+  let currentSyntaxTheme = $state<SyntaxThemeName>('laserwave');
   // Trigger re-render when syntax theme changes
   let syntaxThemeVersion = $state(0);
 

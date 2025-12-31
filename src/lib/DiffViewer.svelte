@@ -16,7 +16,6 @@
     highlightLines,
     detectLanguage,
     prepareLanguage,
-    getTheme,
     type Token,
   } from './services/highlighter';
   import { createScrollSync } from './services/scrollSync';
@@ -57,7 +56,6 @@
   let diffViewerEl: HTMLDivElement | null = $state(null);
   let highlighterReady = $state(false);
   let languageReady = $state(false);
-  let themeBg = $state('#1e1e1e');
 
   // Pre-computed tokens for all lines (computed once when diff/language changes)
   let beforeTokens: Token[][] = $state([]);
@@ -255,10 +253,6 @@
 
       beforeTokens = beforeCode ? highlightLines(beforeCode, language) : [];
       afterTokens = afterCode ? highlightLines(afterCode, language) : [];
-
-      // Update background color from current theme
-      const theme = getTheme();
-      if (theme) themeBg = theme.bg;
     } else {
       // Fallback: plain text tokens using 'inherit' to use CSS variable color
       beforeTokens = beforeLines.map((line) => [{ content: line, color: 'inherit' }]);
@@ -448,8 +442,6 @@
     // Highlighter is initialized by App with the saved theme.
     // We just wait for it to be ready (initHighlighter is idempotent).
     initHighlighter().then(() => {
-      const theme = getTheme();
-      if (theme) themeBg = theme.bg;
       highlighterReady = true;
     });
 
