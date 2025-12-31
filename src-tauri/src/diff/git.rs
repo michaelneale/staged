@@ -229,7 +229,7 @@ pub fn compute_diff(repo: &Repository, before_ref: &str, after_ref: &str) -> Res
     for change in file_changes {
         let before_file = if let Some(ref path) = change.before_path {
             if change.status != Delta::Added {
-                load_file(repo, before_tree.as_ref(), Path::new(path), false)?
+                load_file(repo, before_tree.as_ref(), Path::new(path))?
             } else {
                 None
             }
@@ -242,7 +242,7 @@ pub fn compute_diff(repo: &Repository, before_ref: &str, after_ref: &str) -> Res
                 if is_working_tree {
                     load_file_from_workdir(repo, Path::new(path))?
                 } else {
-                    load_file(repo, after_tree.as_ref(), Path::new(path), false)?
+                    load_file(repo, after_tree.as_ref(), Path::new(path))?
                 }
             } else {
                 None
@@ -433,12 +433,7 @@ fn compute_alignments_from_hunks(
 }
 
 /// Load a file from a git tree.
-fn load_file(
-    repo: &Repository,
-    tree: Option<&Tree>,
-    path: &Path,
-    _is_workdir: bool,
-) -> Result<Option<File>> {
+fn load_file(repo: &Repository, tree: Option<&Tree>, path: &Path) -> Result<Option<File>> {
     let tree = match tree {
         Some(t) => t,
         None => return Ok(None),
