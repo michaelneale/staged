@@ -14,30 +14,28 @@
  * - Sub-line offset preservation (smooth scrolling)
  * - Feedback loop prevention via "primary" pane tracking
  * - Proportional mapping within change regions
+ * - Dynamic line height measurement from DOM
  */
 
 import type { Alignment, Span } from '../types';
-import {
-  DEFAULT_LINE_HEIGHT,
-  SCROLL_ANCHOR_FRACTION,
-  SCROLL_THRESHOLD_PX,
-  SCROLL_SYNC_DEBOUNCE_MS,
-} from '../constants';
 
-export interface ScrollSyncConfig {
-  /** Line height in pixels */
-  lineHeight: number;
-  /** Anchor point as fraction of viewport height (0.33 = 1/3 from top) */
-  anchorFraction: number;
-  /** Minimum pixel difference to trigger scroll update */
-  scrollThreshold: number;
+/** Anchor point as fraction of viewport height (1/3 from top keeps context visible) */
+const SCROLL_ANCHOR_FRACTION = 1 / 3;
+
+/** Minimum pixel difference to trigger scroll update (prevents jitter) */
+const SCROLL_THRESHOLD_PX = 2;
+
+/** Debounce delay (ms) - after this, either pane can become primary */
+const PRIMARY_TIMEOUT_MS = 150;
+
+/**
+ * Measure line height from a pane's DOM.
+ * Returns the height of the first .line element, or 20px as fallback.
+ */
+function measureLineHeight(pane: HTMLElement): number {
+  const firstLine = pane.querySelector('.line') as HTMLElement | null;
+  return firstLine ? firstLine.getBoundingClientRect().height : 20;
 }
-
-const DEFAULT_CONFIG: ScrollSyncConfig = {
-  lineHeight: DEFAULT_LINE_HEIGHT,
-  anchorFraction: SCROLL_ANCHOR_FRACTION,
-  scrollThreshold: SCROLL_THRESHOLD_PX,
-};
 
 /**
  * Find the alignment containing a given row index.
@@ -102,9 +100,7 @@ function transferRow(row: number, alignment: Alignment, side: 'before' | 'after'
  * becomes the primary, and we ignore scroll events from the secondary until
  * user interaction stops.
  */
-export function createScrollSync(config: Partial<ScrollSyncConfig> = {}) {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
-
+export function createScrollSync() {
   let alignments: Alignment[] = [];
 
   // Track which pane is currently the "primary" (user is scrolling it)
@@ -164,15 +160,18 @@ export function createScrollSync(config: Partial<ScrollSyncConfig> = {}) {
       if (primaryTimeout) clearTimeout(primaryTimeout);
       primaryTimeout = setTimeout(() => {
         primarySide = null;
-      }, 150);
+      }, PRIMARY_TIMEOUT_MS);
+
+      // Measure actual line height from DOM (handles dynamic font sizing)
+      const lineHeight = measureLineHeight(source);
 
       // Calculate anchor point (1/3 down the viewport)
-      const anchorOffset = source.clientHeight * cfg.anchorFraction;
+      const anchorOffset = source.clientHeight * SCROLL_ANCHOR_FRACTION;
       const sourceY = source.scrollTop + anchorOffset;
 
       // Convert to row index with sub-row offset
-      const sourceRow = Math.floor(sourceY / cfg.lineHeight);
-      const subRowOffset = sourceY % cfg.lineHeight;
+      const sourceRow = Math.floor(sourceY / lineHeight);
+      const subRowOffset = sourceY % lineHeight;
 
       // Find alignment and transfer row
       const alignment = findAlignment(sourceRow, alignments, side);
@@ -202,12 +201,12 @@ export function createScrollSync(config: Partial<ScrollSyncConfig> = {}) {
       // else: changed region with empty target = no sub-row offset (stay still)
 
       // Convert back to pixels
-      const targetY = targetRow * cfg.lineHeight + adjustedSubRowOffset - anchorOffset;
+      const targetY = targetRow * lineHeight + adjustedSubRowOffset - anchorOffset;
       const clampedTargetY = Math.max(0, targetY);
 
       // Only update if difference is significant
       const verticalDiff = Math.abs(target.scrollTop - clampedTargetY);
-      if (verticalDiff > cfg.scrollThreshold) {
+      if (verticalDiff > SCROLL_THRESHOLD_PX) {
         // Record what we're setting so we can ignore the resulting event
         lastSetScrollTop[otherSide] = clampedTargetY;
         target.scrollTop = clampedTargetY;
@@ -215,7 +214,7 @@ export function createScrollSync(config: Partial<ScrollSyncConfig> = {}) {
 
       // Sync horizontal scroll directly (1:1)
       const horizontalDiff = Math.abs(target.scrollLeft - source.scrollLeft);
-      if (horizontalDiff > cfg.scrollThreshold) {
+      if (horizontalDiff > SCROLL_THRESHOLD_PX) {
         target.scrollLeft = source.scrollLeft;
       }
 
@@ -239,9 +238,12 @@ export function createScrollSync(config: Partial<ScrollSyncConfig> = {}) {
       const beforeRow = side === 'before' ? row : otherRow;
       const afterRow = side === 'after' ? row : otherRow;
 
+      // Measure line height from DOM
+      const lineHeight = measureLineHeight(beforePane);
+
       // Center the row in viewport
-      const beforeOffset = Math.max(0, beforeRow * cfg.lineHeight - beforePane.clientHeight / 3);
-      const afterOffset = Math.max(0, afterRow * cfg.lineHeight - afterPane.clientHeight / 3);
+      const beforeOffset = Math.max(0, beforeRow * lineHeight - beforePane.clientHeight / 3);
+      const afterOffset = Math.max(0, afterRow * lineHeight - afterPane.clientHeight / 3);
 
       // Record positions to ignore resulting events
       lastSetScrollTop.before = beforeOffset;

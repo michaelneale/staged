@@ -28,8 +28,49 @@
     getTextLines,
   } from './diffUtils';
   import { setupKeyboardNav } from './diffKeyboard';
-  import { setupSpaceKeyHandler } from './panelLayout';
-  import { ALIGNMENT_BATCH_SIZE } from './constants';
+
+  /** Number of alignments to process per batch during progressive loading */
+  const ALIGNMENT_BATCH_SIZE = 20;
+
+  /** Duration (ms) for panel flex transitions - used to schedule connector redraws */
+  const PANEL_TRANSITION_MS = 250;
+
+  /**
+   * Set up space key handling for zoom modifier.
+   * Space held = 90/10 split instead of 60/40 (like zoom key in photo editors).
+   */
+  function setupSpaceKeyHandler(onSpaceChange: (held: boolean) => void): () => void {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.code === 'Space' && !e.repeat) {
+        const target = e.target as HTMLElement;
+        // Allow space in text inputs
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+          return;
+        }
+        // Blur focusable elements to capture space
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        onSpaceChange(true);
+      }
+    }
+
+    function handleKeyUp(e: KeyboardEvent) {
+      if (e.code === 'Space') {
+        onSpaceChange(false);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    window.addEventListener('keyup', handleKeyUp, { capture: true });
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      window.removeEventListener('keyup', handleKeyUp, { capture: true });
+    };
+  }
 
   interface Props {
     diff: FileDiff | null;
