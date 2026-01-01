@@ -253,16 +253,29 @@ function calculateChromeColors(syntaxBg: string): ChromeColors {
 }
 
 /**
+ * Git colors from the syntax theme (optional - may be null if theme doesn't define them)
+ */
+export interface ThemeGitColors {
+  added: string | null;
+  deleted: string | null;
+  modified: string | null;
+}
+
+/**
  * Create an adaptive theme based on syntax theme colors.
  *
  * The key insight is detecting light vs dark and adjusting accordingly:
  * - Dark themes: lighten to create elevation/emphasis
  * - Light themes: darken to create elevation/emphasis
+ *
+ * Git colors are taken from the theme when available, with fallbacks for themes
+ * that don't define them.
  */
 export function createAdaptiveTheme(
   syntaxBg: string,
   syntaxFg: string,
-  syntaxComment: string
+  syntaxComment: string,
+  gitColors?: ThemeGitColors
 ): Theme {
   const isDark = luminance(syntaxBg) < 0.5;
 
@@ -276,11 +289,17 @@ export function createAdaptiveTheme(
   // Use the (potentially adjusted) primary bg as the base
   const elevate = (amount: number) => adjust(primaryBg, dir * amount);
 
-  // Accent colors that work on both light and dark
-  const accentBlue = isDark ? '#58a6ff' : '#0969da';
-  const accentGreen = isDark ? '#3fb950' : '#1a7f37';
-  const accentRed = isDark ? '#f85149' : '#cf222e';
-  const accentOrange = isDark ? '#d29922' : '#9a6700';
+  // Fallback accent colors (used when theme doesn't provide git colors)
+  const fallbackBlue = isDark ? '#58a6ff' : '#0969da';
+  const fallbackGreen = isDark ? '#3fb950' : '#1a7f37';
+  const fallbackRed = isDark ? '#f85149' : '#cf222e';
+  const fallbackOrange = isDark ? '#d29922' : '#9a6700';
+
+  // Use theme git colors when available, fallback otherwise
+  const accentGreen = gitColors?.added ?? fallbackGreen;
+  const accentRed = gitColors?.deleted ?? fallbackRed;
+  const accentBlue = gitColors?.modified ?? fallbackBlue;
+  const accentOrange = fallbackOrange; // Used for warnings/caution UI elements
 
   // Border that's visible but not harsh
   const borderBase = mix(primaryBg, syntaxFg, isDark ? 0.15 : 0.12);
@@ -328,7 +347,7 @@ export function createAdaptiveTheme(
 
     ui: {
       accent: accentGreen,
-      accentHover: isDark ? '#2ea043' : '#2da44e',
+      accentHover: isDark ? adjust(accentGreen, -0.15) : adjust(accentGreen, 0.15),
       danger: accentRed,
       dangerBg: overlay(accentRed, isDark ? 0.1 : 0.08),
       // Selection uses foreground color for a neutral, theme-consistent highlight

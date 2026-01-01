@@ -25,6 +25,10 @@ export interface HighlighterTheme {
   bg: string;
   fg: string;
   comment: string; // Color used for comments - useful for muted UI text
+  // Git/diff colors from the theme (may be null if theme doesn't define them)
+  added: string | null;
+  deleted: string | null;
+  modified: string | null;
 }
 
 // Singleton highlighter instance
@@ -470,6 +474,63 @@ function extractCommentColor(settings: ThemeSetting[] | undefined, fallback: str
 }
 
 /**
+ * Strip alpha channel from hex color if present (e.g., #50FA7B80 -> #50FA7B)
+ */
+function stripAlpha(color: string): string {
+  // Handle 8-digit hex (#RRGGBBAA)
+  if (color.length === 9 && color.startsWith('#')) {
+    return color.slice(0, 7);
+  }
+  return color;
+}
+
+/**
+ * Extract git-related colors from theme's colors object.
+ * Tries multiple keys in order of preference.
+ */
+function extractGitColors(colors: Record<string, string> | undefined): {
+  added: string | null;
+  deleted: string | null;
+  modified: string | null;
+} {
+  if (!colors) {
+    return { added: null, deleted: null, modified: null };
+  }
+
+  // Try keys in order of preference (foreground colors first, then gutter/diff)
+  const addedKeys = [
+    'gitDecoration.addedResourceForeground',
+    'editorGutter.addedBackground',
+    'diffEditor.insertedTextBackground',
+  ];
+  const deletedKeys = [
+    'gitDecoration.deletedResourceForeground',
+    'editorGutter.deletedBackground',
+    'diffEditor.removedTextBackground',
+  ];
+  const modifiedKeys = [
+    'gitDecoration.modifiedResourceForeground',
+    'editorGutter.modifiedBackground',
+  ];
+
+  const findColor = (keys: string[]): string | null => {
+    for (const key of keys) {
+      const value = colors[key];
+      if (value) {
+        return stripAlpha(value);
+      }
+    }
+    return null;
+  };
+
+  return {
+    added: findColor(addedKeys),
+    deleted: findColor(deletedKeys),
+    modified: findColor(modifiedKeys),
+  };
+}
+
+/**
  * Initialize the highlighter with a theme.
  * Only loads core languages at startup for fast init.
  * Other languages are lazy-loaded on demand.
@@ -503,11 +564,13 @@ export async function initHighlighter(themeName: string = 'github-dark'): Promis
     // Extract theme colors
     const theme = highlighter.getTheme(themeName);
     const fg = theme.fg || '#d4d4d4';
+    const gitColors = extractGitColors(theme.colors as Record<string, string> | undefined);
     currentTheme = {
       name: themeName,
       bg: theme.bg || '#1e1e1e',
       fg,
       comment: extractCommentColor(theme.settings as ThemeSetting[], fg),
+      ...gitColors,
     };
   })();
 
@@ -678,11 +741,13 @@ export async function setSyntaxTheme(themeName: SyntaxThemeName): Promise<void> 
   currentThemeName = themeName;
   const theme = highlighter.getTheme(themeName);
   const fg = theme.fg || '#d4d4d4';
+  const gitColors = extractGitColors(theme.colors as Record<string, string> | undefined);
   currentTheme = {
     name: themeName,
     bg: theme.bg || '#1e1e1e',
     fg,
     comment: extractCommentColor(theme.settings as ThemeSetting[], fg),
+    ...gitColors,
   };
 
   // Notify listeners

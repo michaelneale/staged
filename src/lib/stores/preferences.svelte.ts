@@ -66,7 +66,11 @@ function applyCssVars(cssVars: string) {
 function applyAdaptiveTheme() {
   const themeInfo = getTheme();
   if (themeInfo) {
-    const adaptiveTheme = createAdaptiveTheme(themeInfo.bg, themeInfo.fg, themeInfo.comment);
+    const adaptiveTheme = createAdaptiveTheme(themeInfo.bg, themeInfo.fg, themeInfo.comment, {
+      added: themeInfo.added,
+      deleted: themeInfo.deleted,
+      modified: themeInfo.modified,
+    });
     const cssVars = themeToCssVars(adaptiveTheme);
     applyCssVars(cssVars);
   }
