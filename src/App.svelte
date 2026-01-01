@@ -34,6 +34,7 @@
     diffState,
     getCurrentDiff,
     loadDiffs,
+    refreshDiffs,
     selectFile,
     resetState,
   } from './lib/stores/diffState.svelte';
@@ -101,7 +102,9 @@
 
   async function handleFilesChanged() {
     if (diffSelection.spec.head !== WORKDIR) return;
-    await loadAllDiffs();
+    // Use refreshDiffs to avoid loading flicker - keeps content visible during fetch
+    await refreshDiffs(diffSelection.spec.base, diffSelection.spec.head);
+    sidebarRef?.setDiffs(diffState.diffs);
   }
 
   // Preset selection

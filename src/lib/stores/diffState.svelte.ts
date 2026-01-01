@@ -18,7 +18,7 @@ import type { FileDiff } from '../types';
 export const diffState = $state({
   /** All diffs for the current base..head */
   diffs: [] as FileDiff[],
-  /** Whether diffs are currently loading */
+  /** Whether diffs are currently loading (initial load only) */
   loading: true,
   /** Error message if loading failed */
   error: null as string | null,
@@ -39,12 +39,34 @@ export function getCurrentDiff(): FileDiff | null {
 }
 
 // =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Apply selection logic after loading diffs.
+ */
+function updateSelection(): void {
+  // Auto-select first file if none selected
+  if (!diffState.selectedFile && diffState.diffs.length > 0) {
+    diffState.selectedFile = getFilePath(diffState.diffs[0]);
+  }
+
+  // Check if currently selected file still exists
+  if (diffState.selectedFile) {
+    const stillExists = diffState.diffs.some((d) => getFilePath(d) === diffState.selectedFile);
+    if (!stillExists) {
+      diffState.selectedFile = diffState.diffs.length > 0 ? getFilePath(diffState.diffs[0]) : null;
+    }
+  }
+}
+
+// =============================================================================
 // Actions
 // =============================================================================
 
 /**
  * Load all diffs for the given base..head.
- * Auto-selects the first file if none is selected.
+ * Shows loading state - use for initial load or spec changes.
  */
 export async function loadDiffs(base: string, head: string): Promise<void> {
   diffState.loading = true;
@@ -52,25 +74,26 @@ export async function loadDiffs(base: string, head: string): Promise<void> {
 
   try {
     diffState.diffs = await getDiff(base, head);
-
-    // Auto-select first file if none selected
-    if (!diffState.selectedFile && diffState.diffs.length > 0) {
-      diffState.selectedFile = getFilePath(diffState.diffs[0]);
-    }
-
-    // Check if currently selected file still exists
-    if (diffState.selectedFile) {
-      const stillExists = diffState.diffs.some((d) => getFilePath(d) === diffState.selectedFile);
-      if (!stillExists) {
-        diffState.selectedFile =
-          diffState.diffs.length > 0 ? getFilePath(diffState.diffs[0]) : null;
-      }
-    }
+    updateSelection();
   } catch (e) {
     diffState.error = e instanceof Error ? e.message : String(e);
     diffState.diffs = [];
   } finally {
     diffState.loading = false;
+  }
+}
+
+/**
+ * Refresh diffs without showing loading state.
+ * Use for file watcher updates - keeps existing content visible during fetch.
+ */
+export async function refreshDiffs(base: string, head: string): Promise<void> {
+  try {
+    diffState.diffs = await getDiff(base, head);
+    updateSelection();
+  } catch (e) {
+    // On refresh errors, keep existing state (don't disrupt UI)
+    console.error('Refresh failed:', e);
   }
 }
 
