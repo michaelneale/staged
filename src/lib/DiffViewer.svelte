@@ -482,6 +482,44 @@
     return map.has(lineIndex);
   }
 
+  /**
+   * Handle copy event to properly include newlines between lines.
+   * The browser's default copy doesn't add newlines between div elements.
+   */
+  function handleCopy(event: ClipboardEvent) {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) return;
+
+    // Check if selection is within one of our code containers
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+    const codeContainer = (
+      container instanceof Element ? container : container.parentElement
+    )?.closest('.code-container');
+
+    if (!codeContainer) return; // Not in our diff panes
+
+    // Get all selected line elements
+    const lines: string[] = [];
+    const lineElements = codeContainer.querySelectorAll('.line');
+
+    for (const lineEl of lineElements) {
+      if (selection.containsNode(lineEl, true)) {
+        // Get the text content of the line-content span
+        const contentEl = lineEl.querySelector('.line-content');
+        if (contentEl) {
+          lines.push(contentEl.textContent || '');
+        }
+      }
+    }
+
+    if (lines.length > 0) {
+      event.preventDefault();
+      const text = lines.join('\n');
+      event.clipboardData?.setData('text/plain', text);
+    }
+  }
+
   onMount(() => {
     // Highlighter is initialized by App with the saved theme.
     // We just wait for it to be ready (initHighlighter is idempotent).
@@ -499,9 +537,13 @@
       getScrollTarget: () => afterPane,
     });
 
+    // Copy handler for proper newline handling
+    document.addEventListener('copy', handleCopy);
+
     return () => {
       cleanupSpaceKey();
       cleanupKeyboardNav?.();
+      document.removeEventListener('copy', handleCopy);
     };
   });
 </script>

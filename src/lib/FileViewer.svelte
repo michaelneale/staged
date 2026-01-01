@@ -96,6 +96,42 @@
     }
   });
 
+  /**
+   * Handle copy event to properly include newlines between lines.
+   */
+  function handleCopy(event: ClipboardEvent) {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) return;
+
+    // Check if selection is within our code container
+    const range = selection.getRangeAt(0);
+    const ancestor = range.commonAncestorContainer;
+    const codeContainer = (
+      ancestor instanceof Element ? ancestor : ancestor.parentElement
+    )?.closest('.code-container');
+
+    if (!codeContainer || !container?.contains(codeContainer)) return;
+
+    // Get all selected line elements
+    const lines: string[] = [];
+    const lineElements = codeContainer.querySelectorAll('.line');
+
+    for (const lineEl of lineElements) {
+      if (selection.containsNode(lineEl, true)) {
+        const contentEl = lineEl.querySelector('.line-content');
+        if (contentEl) {
+          lines.push(contentEl.textContent || '');
+        }
+      }
+    }
+
+    if (lines.length > 0) {
+      event.preventDefault();
+      const text = lines.join('\n');
+      event.clipboardData?.setData('text/plain', text);
+    }
+  }
+
   onMount(() => {
     initHighlighter().then(() => {
       highlighterReady = true;
@@ -106,8 +142,12 @@
       getScrollTarget: () => container,
     });
 
+    // Copy handler for proper newline handling
+    document.addEventListener('copy', handleCopy);
+
     return () => {
       cleanupKeyboardNav?.();
+      document.removeEventListener('copy', handleCopy);
     };
   });
 </script>

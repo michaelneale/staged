@@ -7,7 +7,7 @@
   Review state comes from the review storage, not git index.
 -->
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import {
     MessageSquare,
     CircleFadingArrowUp,
@@ -95,10 +95,6 @@
   let needsReview = $derived(files.filter((f) => !f.isReviewed));
   let reviewed = $derived(files.filter((f) => f.isReviewed));
 
-  onMount(() => {
-    loadReview();
-  });
-
   // Reload review when diff spec changes
   $effect(() => {
     // Track diffBase and diffHead to trigger reload
@@ -145,6 +141,34 @@
     }
     return '';
   }
+
+  /**
+   * Handle CMD+C to copy selected file path to clipboard.
+   */
+  function handleKeydown(event: KeyboardEvent) {
+    // CMD+C (Mac) or Ctrl+C (Windows/Linux) to copy selected file path
+    if ((event.metaKey || event.ctrlKey) && event.key === 'c') {
+      // Only handle if there's a selected file and no text selection
+      const selection = window.getSelection();
+      const hasTextSelection = selection && selection.toString().length > 0;
+
+      if (selectedFile && !hasTextSelection) {
+        event.preventDefault();
+        navigator.clipboard.writeText(selectedFile).catch((err) => {
+          console.error('Failed to copy file path:', err);
+        });
+      }
+    }
+  }
+
+  onMount(() => {
+    loadReview();
+    window.addEventListener('keydown', handleKeydown);
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('keydown', handleKeydown);
+  });
 </script>
 
 <div class="sidebar-content">
