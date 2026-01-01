@@ -3,14 +3,21 @@
   
   Renders a two-pane diff view with synchronized scrolling, syntax highlighting,
   and visual connectors between corresponding changed regions. Supports panel
-  minimization for new/deleted files and range-level discard operations.
+  minimization for new/deleted files, range-level discard operations, and comments.
   
   Alignments are loaded progressively to keep the UI responsive for large files.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { X, GitBranch } from 'lucide-svelte';
-  import type { FileDiff, Alignment } from './types';
+  import { X, GitBranch, MessageSquarePlus, MessageSquare, Trash2 } from 'lucide-svelte';
+  import type { FileDiff, Alignment, Comment, Selection } from './types';
+  import {
+    commentsState,
+    getCommentsForRange,
+    addComment,
+    updateComment,
+    deleteComment,
+  } from './stores/comments.svelte';
   import {
     initHighlighter,
     highlightLines,
@@ -119,6 +126,18 @@
   // Range hover state (for showing discard toolbar on changed ranges)
   let hoveredRangeIndex: number | null = $state(null);
   let rangeToolbarStyle: { top: number; left: number } | null = $state(null);
+
+  // Comment state
+  let commentingOnRange: number | null = $state(null);
+  // Comment editor positioning: anchored to line, repositions on scroll
+  // position: 'above' | 'below' determines which side of the range
+  let commentEditorStyle: {
+    top: number;
+    left: number;
+    width: number;
+    position: 'above' | 'below';
+    visible: boolean; // false when scrolled out of view
+  } | null = $state(null);
 
   // ==========================================================================
   // Progressive alignment loading
@@ -264,6 +283,7 @@
     scrollSync.onScroll('before', target, afterPane);
     redrawConnectors();
     updateToolbarPosition();
+    updateCommentEditorPosition();
   }
 
   function handleAfterScroll(e: Event) {
@@ -272,6 +292,7 @@
     scrollSync.onScroll('after', target, beforePane);
     redrawConnectors();
     updateToolbarPosition();
+    updateCommentEditorPosition();
   }
 
   let language = $derived(diff ? getLanguageFromDiff(diff, detectLanguage) : null);
@@ -339,6 +360,7 @@
       lineHeight,
       verticalOffset,
       hoveredIndex: hoveredRangeIndex,
+      alignmentsWithComments,
     });
   }
 
@@ -408,6 +430,15 @@
     }
   });
 
+  // Redraw connectors when comments change (to update comment indicators)
+  $effect(() => {
+    // Depend on alignmentsWithComments
+    const _ = alignmentsWithComments;
+    if (diff && connectorSvg && beforePane) {
+      redrawConnectors();
+    }
+  });
+
   // ==========================================================================
   // Range hover handling
   // ==========================================================================
@@ -444,8 +475,6 @@
   }
 
   function handleLineMouseEnter(pane: 'before' | 'after', lineIndex: number) {
-    if (!canDiscard) return; // Don't show hover if discard not available
-
     const map = pane === 'before' ? beforeLineToAlignment : afterLineToAlignment;
     const alignmentIdx = map.get(lineIndex);
 
@@ -489,6 +518,192 @@
     hoveredRangeIndex = null;
     rangeToolbarStyle = null;
     onRangeDiscard?.();
+  }
+
+  // ==========================================================================
+  // Comment handling
+  // ==========================================================================
+
+  // Get the current file path for comments
+  let currentFilePath = $derived(afterPath ?? beforePath ?? '');
+
+  // Get comments for the current alignment being hovered
+  function getCommentsForAlignment(alignmentIndex: number): Comment[] {
+    const alignmentData = changedAlignments[alignmentIndex];
+    if (!alignmentData) return [];
+    const { alignment } = alignmentData;
+    // Use the after span for comment positioning
+    return getCommentsForRange(alignment.after.start, alignment.after.end);
+  }
+
+  // Check if an alignment has comments
+  function alignmentHasComments(alignmentIndex: number): boolean {
+    return getCommentsForAlignment(alignmentIndex).length > 0;
+  }
+
+  // Compute set of alignment indices that have comments (for spine indicators)
+  let alignmentsWithComments = $derived.by(() => {
+    const set = new Set<number>();
+    for (let i = 0; i < changedAlignments.length; i++) {
+      if (alignmentHasComments(i)) {
+        set.add(i);
+      }
+    }
+    return set;
+  });
+
+  // Track whether comment should be above or below (decided once when opening)
+  let commentPositionPreference: 'above' | 'below' = 'below';
+
+  function handleStartComment() {
+    if (hoveredRangeIndex === null) return;
+    commentingOnRange = hoveredRangeIndex;
+
+    // Decide position preference based on available space when opening
+    commentPositionPreference = decideCommentPosition();
+    updateCommentEditorPosition();
+  }
+
+  /**
+   * Decide whether to position comment above or below based on available space.
+   * Called once when opening the comment editor.
+   */
+  function decideCommentPosition(): 'above' | 'below' {
+    if (commentingOnRange === null || !afterPane || !diffViewerEl) return 'below';
+
+    const alignmentData = changedAlignments[commentingOnRange];
+    if (!alignmentData) return 'below';
+
+    const { alignment } = alignmentData;
+    const paneRect = afterPane.getBoundingClientRect();
+    const editorHeight = 120; // Approximate height of comment editor
+
+    // Get the last line of the range
+    const lastLineIndex = Math.max(alignment.after.start, alignment.after.end - 1);
+    const lastLineEl = afterPane.querySelectorAll('.line')[lastLineIndex] as HTMLElement | null;
+    if (!lastLineEl) return 'below';
+
+    const lastLineRect = lastLineEl.getBoundingClientRect();
+    const spaceBelow = paneRect.bottom - lastLineRect.bottom;
+
+    // Get the first line of the range
+    const firstLineEl = afterPane.querySelectorAll('.line')[
+      alignment.after.start
+    ] as HTMLElement | null;
+    if (!firstLineEl) return 'below';
+
+    const firstLineRect = firstLineEl.getBoundingClientRect();
+    const spaceAbove = firstLineRect.top - paneRect.top;
+
+    // Prefer below if there's enough space, otherwise above
+    if (spaceBelow >= editorHeight) return 'below';
+    if (spaceAbove >= editorHeight) return 'above';
+
+    // If neither has enough space, pick the one with more
+    return spaceBelow >= spaceAbove ? 'below' : 'above';
+  }
+
+  /**
+   * Update comment editor position based on current scroll.
+   * Called on every scroll to keep it anchored to the range.
+   */
+  function updateCommentEditorPosition() {
+    if (commentingOnRange === null || !afterPane || !diffViewerEl) {
+      commentEditorStyle = null;
+      return;
+    }
+
+    const alignmentData = changedAlignments[commentingOnRange];
+    if (!alignmentData) {
+      commentEditorStyle = null;
+      return;
+    }
+
+    const { alignment } = alignmentData;
+    const viewerRect = diffViewerEl.getBoundingClientRect();
+    const paneRect = afterPane.getBoundingClientRect();
+    const editorHeight = 120;
+
+    let top: number;
+    let anchorLineEl: HTMLElement | null;
+
+    if (commentPositionPreference === 'below') {
+      // Anchor to bottom of last line
+      const lastLineIndex = Math.max(alignment.after.start, alignment.after.end - 1);
+      anchorLineEl = afterPane.querySelectorAll('.line')[lastLineIndex] as HTMLElement | null;
+      if (!anchorLineEl) {
+        commentEditorStyle = null;
+        return;
+      }
+      const lineRect = anchorLineEl.getBoundingClientRect();
+      top = lineRect.bottom - viewerRect.top;
+    } else {
+      // Anchor to top of first line
+      anchorLineEl = afterPane.querySelectorAll('.line')[
+        alignment.after.start
+      ] as HTMLElement | null;
+      if (!anchorLineEl) {
+        commentEditorStyle = null;
+        return;
+      }
+      const lineRect = anchorLineEl.getBoundingClientRect();
+      top = lineRect.top - viewerRect.top - editorHeight;
+    }
+
+    // Check if the editor would be visible in the pane's scroll area
+    // The pane content area starts after the header
+    const paneContentTop = paneRect.top - viewerRect.top;
+    const paneContentBottom = paneRect.bottom - viewerRect.top;
+
+    // Determine visibility: editor is visible if any part is in the pane content area
+    const editorTop = top;
+    const editorBottom = top + editorHeight;
+    const visible = editorBottom > paneContentTop && editorTop < paneContentBottom;
+
+    commentEditorStyle = {
+      top,
+      left: paneRect.left - viewerRect.left + 12,
+      width: paneRect.width - 24,
+      position: commentPositionPreference,
+      visible,
+    };
+  }
+
+  async function handleCommentSubmit(content: string) {
+    if (commentingOnRange === null || !currentFilePath) return;
+
+    const alignmentData = changedAlignments[commentingOnRange];
+    if (!alignmentData) return;
+
+    const { alignment } = alignmentData;
+    const selection: Selection = {
+      type: 'range',
+      span: { start: alignment.after.start, end: alignment.after.end },
+    };
+
+    await addComment(currentFilePath, selection, content);
+    commentingOnRange = null;
+    commentEditorStyle = null;
+  }
+
+  function handleCommentCancel() {
+    commentingOnRange = null;
+    commentEditorStyle = null;
+  }
+
+  async function handleCommentEdit(id: string, content: string) {
+    await updateComment(id, content);
+  }
+
+  async function handleCommentDelete(id: string) {
+    await deleteComment(id);
+  }
+
+  /**
+   * Svelte action to auto-focus textarea.
+   */
+  function autoFocus(node: HTMLTextAreaElement) {
+    node.focus();
   }
 
   /**
@@ -690,17 +905,79 @@
       </div>
     </div>
 
-    <!-- Range action toolbar (floating, only when viewing working tree) -->
-    {#if hoveredRangeIndex !== null && rangeToolbarStyle && canDiscard}
+    <!-- Range action toolbar (floating) -->
+    {#if hoveredRangeIndex !== null && rangeToolbarStyle && commentingOnRange === null}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="range-toolbar"
         style="top: {rangeToolbarStyle.top}px; left: {rangeToolbarStyle.left}px;"
         onmouseleave={handleToolbarMouseLeave}
       >
-        <button class="range-btn discard-btn" onclick={handleDiscardRange} title="Discard changes">
-          <X size={12} />
+        <button class="range-btn comment-btn" onclick={handleStartComment} title="Add comment (c)">
+          {#if alignmentHasComments(hoveredRangeIndex)}
+            <MessageSquare size={12} />
+          {:else}
+            <MessageSquarePlus size={12} />
+          {/if}
         </button>
+        {#if canDiscard}
+          <button
+            class="range-btn discard-btn"
+            onclick={handleDiscardRange}
+            title="Discard changes"
+          >
+            <X size={12} />
+          </button>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Comment editor (sticky, anchored to range) -->
+    {#if commentingOnRange !== null && commentEditorStyle}
+      {@const existingComments = getCommentsForAlignment(commentingOnRange)}
+      {@const existingComment = existingComments[0] ?? null}
+      <div
+        class="comment-editor"
+        class:comment-editor-hidden={!commentEditorStyle.visible}
+        style="top: {commentEditorStyle.top}px; left: {commentEditorStyle.left}px; width: {commentEditorStyle.width}px;"
+      >
+        <textarea
+          class="comment-textarea"
+          placeholder="Add a comment..."
+          value={existingComment?.content ?? ''}
+          onkeydown={(e) => {
+            if (e.key === 'Escape') {
+              handleCommentCancel();
+            } else if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              const content = (e.target as HTMLTextAreaElement).value.trim();
+              if (content) {
+                if (existingComment) {
+                  handleCommentEdit(existingComment.id, content);
+                } else {
+                  handleCommentSubmit(content);
+                }
+              }
+              handleCommentCancel();
+            }
+          }}
+          use:autoFocus
+        ></textarea>
+        <div class="comment-editor-hint">
+          <span>Enter to save · Esc to cancel</span>
+          {#if existingComment}
+            <button
+              class="delete-comment-btn"
+              onclick={() => {
+                handleCommentDelete(existingComment.id);
+                handleCommentCancel();
+              }}
+              title="Delete comment"
+            >
+              <Trash2 size={12} />
+            </button>
+          {/if}
+        </div>
       </div>
     {/if}
   {/if}
@@ -990,5 +1267,79 @@
 
   .range-btn.discard-btn:hover {
     color: var(--status-deleted);
+  }
+
+  .range-btn.comment-btn:hover {
+    color: var(--accent-primary);
+  }
+
+  /* Comment editor - flat, clean design, sticky to range */
+  .comment-editor {
+    position: absolute;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--bg-chrome);
+    border-radius: 8px;
+    overflow: hidden;
+    /* Smooth position updates during scroll */
+    transition: opacity 0.15s ease;
+  }
+
+  /* Hidden when scrolled out of view */
+  .comment-editor-hidden {
+    opacity: 0.3;
+    pointer-events: none;
+  }
+
+  .comment-textarea {
+    width: 100%;
+    height: 84px; /* 4 lines (14px font * 1.5 line-height * 4) */
+    padding: 10px 12px;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--size-sm);
+    line-height: 1.5;
+    resize: none;
+    overflow-y: auto;
+  }
+
+  .comment-textarea:focus {
+    outline: none;
+  }
+
+  .comment-textarea::placeholder {
+    color: var(--text-faint);
+  }
+
+  .comment-editor-hint {
+    display: flex;
+    align-items: center;
+    padding: 4px 12px 8px;
+    font-size: var(--size-xs);
+    color: var(--text-faint);
+  }
+
+  .delete-comment-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    padding: 4px;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-faint);
+    cursor: pointer;
+    transition:
+      color 0.1s,
+      background-color 0.1s;
+  }
+
+  .delete-comment-btn:hover {
+    color: var(--status-deleted);
+    background-color: var(--bg-hover);
   }
 </style>

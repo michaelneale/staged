@@ -112,6 +112,12 @@ fn add_comment(base: String, head: String, comment: NewComment) -> Result<Commen
 }
 
 #[tauri::command]
+fn update_comment(comment_id: String, content: String) -> Result<(), String> {
+    let store = diff::get_store().map_err(|e| e.0)?;
+    store.update_comment(&comment_id, &content).map_err(|e| e.0)
+}
+
+#[tauri::command]
 fn delete_comment(comment_id: String) -> Result<(), String> {
     let store = diff::get_store().map_err(|e| e.0)?;
     store.delete_comment(&comment_id).map_err(|e| e.0)
@@ -195,6 +201,7 @@ fn stop_watching(state: State<RefreshControllerState>) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(RefreshControllerState(Mutex::new(None)))
         .setup(|app| {
             // Initialize the review store with app data directory
@@ -225,6 +232,7 @@ pub fn run() {
             // Review commands
             get_review,
             add_comment,
+            update_comment,
             delete_comment,
             mark_reviewed,
             unmark_reviewed,

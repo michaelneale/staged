@@ -7,6 +7,8 @@
  *
  * The connectors only draw the top and bottom curves - no vertical lines
  * on the edges, since those would duplicate the range borders in the text panes.
+ *
+ * Also draws comment indicators for alignments that have comments.
  */
 
 import type { Alignment } from './types';
@@ -17,12 +19,15 @@ export interface ConnectorConfig {
   verticalOffset: number;
   /** Index of the hovered alignment (in the changed alignments list), or null */
   hoveredIndex: number | null;
+  /** Set of changed alignment indices that have comments */
+  alignmentsWithComments?: Set<number>;
 }
 
 const DEFAULT_CONFIG: ConnectorConfig = {
   lineHeight: 20,
   verticalOffset: 0,
   hoveredIndex: null,
+  alignmentsWithComments: new Set(),
 };
 
 /**
@@ -179,5 +184,36 @@ export function drawConnectors(
     bottomStroke.setAttribute('stroke-width', '1');
     bottomStroke.setAttribute('vector-effect', 'non-scaling-stroke');
     clippedGroup.appendChild(bottomStroke);
+  }
+
+  // Draw comment indicators for alignments with comments
+  // These are small dots in the center of the spine, positioned at the middle of the first line
+  if (cfg.alignmentsWithComments && cfg.alignmentsWithComments.size > 0) {
+    const commentColor = getCssVar('--text-muted', 'rgba(128, 128, 128, 0.6)');
+    const centerX = svgWidth / 2;
+    const dotRadius = 3;
+
+    let changedIdx = 0;
+    for (const alignment of alignments) {
+      if (!alignment.changed) continue;
+
+      if (cfg.alignmentsWithComments.has(changedIdx)) {
+        // Position at the vertical center of the first line on the after side
+        const afterTop = alignment.after.start * cfg.lineHeight - afterScroll + cfg.verticalOffset;
+        const centerY = afterTop + cfg.lineHeight / 2;
+
+        // Only draw if visible
+        if (centerY > clipTop && centerY < svgHeight) {
+          const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          dot.setAttribute('cx', String(centerX));
+          dot.setAttribute('cy', String(centerY));
+          dot.setAttribute('r', String(dotRadius));
+          dot.setAttribute('fill', commentColor);
+          clippedGroup.appendChild(dot);
+        }
+      }
+
+      changedIdx++;
+    }
   }
 }

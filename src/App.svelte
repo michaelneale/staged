@@ -1,6 +1,16 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { ArrowRight, GitBranch, Tag, Diamond, AlertCircle } from 'lucide-svelte';
+  import {
+    ArrowRight,
+    GitBranch,
+    Tag,
+    Diamond,
+    AlertCircle,
+    Copy,
+    MessageSquare,
+    Check,
+    Trash2,
+  } from 'lucide-svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import DiffViewer from './lib/DiffViewer.svelte';
   import FileViewer from './lib/FileViewer.svelte';
@@ -38,10 +48,18 @@
     selectFile,
     resetState,
   } from './lib/stores/diffState.svelte';
+  import {
+    commentsState,
+    loadComments,
+    setCurrentPath,
+    copyCommentsToClipboard,
+    deleteAllComments,
+  } from './lib/stores/comments.svelte';
 
   // UI State
   let sidebarRef: Sidebar | null = $state(null);
   let unsubscribe: Unsubscribe | null = null;
+  let copiedFeedback = $state(false);
 
   // Inline diff selector state
   let baseInput = $state('');
@@ -97,8 +115,15 @@
   // Diff Loading
   async function loadAllDiffs() {
     await loadDiffs(diffSelection.spec.base, diffSelection.spec.head);
+    await loadComments(diffSelection.spec.base, diffSelection.spec.head);
     sidebarRef?.setDiffs(diffState.diffs);
   }
+
+  // Update comments store when selected file changes
+  $effect(() => {
+    const path = currentDiff?.after?.path ?? currentDiff?.before?.path ?? null;
+    setCurrentPath(path);
+  });
 
   async function handleFilesChanged() {
     if (diffSelection.spec.head !== WORKDIR) return;
@@ -199,6 +224,17 @@
   // Check if current selection matches a preset
   function isPresetSelected(preset: DiffSpec): boolean {
     return preset.base === diffSelection.spec.base && preset.head === diffSelection.spec.head;
+  }
+
+  // Handle copy comments with visual feedback
+  async function handleCopyComments() {
+    const success = await copyCommentsToClipboard();
+    if (success) {
+      copiedFeedback = true;
+      setTimeout(() => {
+        copiedFeedback = false;
+      }, 1500);
+    }
   }
 
   // Determine if we should use single-file viewer (created/deleted files)
@@ -368,6 +404,33 @@
       <div class="input-error">
         <AlertCircle size={14} />
         <span>{inputError}</span>
+      </div>
+    {/if}
+
+    <!-- Comments section -->
+    {#if commentsState.comments.length > 0}
+      <div class="comments-section">
+        <MessageSquare size={14} />
+        <span class="comment-count">{commentsState.comments.length}</span>
+        <button
+          class="comments-action-btn"
+          class:copied={copiedFeedback}
+          onclick={handleCopyComments}
+          title="Copy all comments"
+        >
+          {#if copiedFeedback}
+            <Check size={12} />
+          {:else}
+            <Copy size={12} />
+          {/if}
+        </button>
+        <button
+          class="comments-action-btn delete-btn"
+          onclick={deleteAllComments}
+          title="Delete all comments"
+        >
+          <Trash2 size={12} />
+        </button>
       </div>
     {/if}
 
@@ -650,9 +713,55 @@
     margin-top: 8px;
   }
 
+  /* Comments section */
+  .comments-section {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    padding: 4px 8px;
+    background-color: var(--bg-primary);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: var(--size-xs);
+  }
+
+  .comment-count {
+    font-weight: 500;
+    min-width: 1ch;
+  }
+
+  .comments-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    background: none;
+    border: none;
+    border-radius: 3px;
+    color: var(--text-faint);
+    cursor: pointer;
+    transition:
+      color 0.1s,
+      background-color 0.1s;
+  }
+
+  .comments-action-btn:hover {
+    color: var(--text-primary);
+    background-color: var(--bg-hover);
+  }
+
+  .comments-action-btn.copied {
+    color: var(--status-added);
+  }
+
+  .comments-action-btn.delete-btn:hover {
+    color: var(--status-deleted);
+  }
+
   /* Theme picker - minimal */
   .theme-picker {
-    margin-left: auto;
+    margin-left: 12px;
     display: flex;
     align-items: center;
     gap: 6px;

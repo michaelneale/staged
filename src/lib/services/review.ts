@@ -22,6 +22,13 @@ export async function addComment(
 }
 
 /**
+ * Update a comment's content.
+ */
+export async function updateComment(commentId: string, content: string): Promise<void> {
+  return invoke('update_comment', { commentId, content });
+}
+
+/**
  * Delete a comment from a review.
  */
 export async function deleteComment(commentId: string): Promise<void> {

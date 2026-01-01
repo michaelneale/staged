@@ -20,7 +20,8 @@
     RotateCcw,
   } from 'lucide-svelte';
   import { getReview, markReviewed, unmarkReviewed } from './services/review';
-  import type { FileDiff, Review } from './types';
+  import { commentsState } from './stores/comments.svelte';
+  import type { FileDiff } from './types';
   import { getFilePath } from './diffUtils';
 
   interface FileEntry {
@@ -44,7 +45,8 @@
   let { onFileSelect, selectedFile = null, diffBase = 'HEAD', diffHead = '@' }: Props = $props();
 
   let diffs: FileDiff[] = $state([]);
-  let review: Review | null = $state(null);
+  /** Reviewed file paths (loaded from review storage) */
+  let reviewedPaths: string[] = $state([]);
   let loading = $state(true);
 
   // Is this viewing the working tree?
@@ -62,13 +64,18 @@
 
   /**
    * Build file list from diffs with review state.
+   * Uses commentsState for comment counts (reactive) and reviewedPaths for reviewed status.
    */
-  function buildFileList(fileDiffs: FileDiff[], reviewData: Review | null): FileEntry[] {
-    const reviewedSet = new Set(reviewData?.reviewed || []);
+  function buildFileList(
+    fileDiffs: FileDiff[],
+    reviewed: string[],
+    comments: typeof commentsState.comments
+  ): FileEntry[] {
+    const reviewedSet = new Set(reviewed);
 
-    // Count comments per file
+    // Count comments per file from the shared comments state
     const commentCounts = new Map<string, number>();
-    for (const comment of reviewData?.comments || []) {
+    for (const comment of comments) {
       commentCounts.set(comment.path, (commentCounts.get(comment.path) || 0) + 1);
     }
 
@@ -91,7 +98,8 @@
     loading = false;
   }
 
-  let files = $derived(buildFileList(diffs, review));
+  // Use commentsState.comments for reactive comment counts
+  let files = $derived(buildFileList(diffs, reviewedPaths, commentsState.comments));
   let needsReview = $derived(files.filter((f) => !f.isReviewed));
   let reviewed = $derived(files.filter((f) => f.isReviewed));
 
@@ -104,10 +112,11 @@
 
   async function loadReview() {
     try {
-      review = await getReview(diffBase, diffHead);
+      const review = await getReview(diffBase, diffHead);
+      reviewedPaths = review.reviewed;
     } catch (e) {
       console.error('Failed to load review:', e);
-      review = null;
+      reviewedPaths = [];
     }
   }
 
@@ -123,8 +132,9 @@
       } else {
         await markReviewed(diffBase, diffHead, file.path);
       }
-      // Reload review state
-      review = await getReview(diffBase, diffHead);
+      // Reload reviewed paths
+      const review = await getReview(diffBase, diffHead);
+      reviewedPaths = review.reviewed;
     } catch (e) {
       console.error('Failed to toggle reviewed:', e);
     }
@@ -240,7 +250,6 @@
                 {#if file.commentCount > 0}
                   <span class="comment-indicator">
                     <MessageSquare size={12} />
-                    <span class="comment-count">{file.commentCount}</span>
                   </span>
                 {/if}
               </button>
@@ -306,10 +315,10 @@
                   <span class="file-name">{getFileName(file.path)}</span>
                 </span>
 
+                <!-- Comment indicator -->
                 {#if file.commentCount > 0}
                   <span class="comment-indicator">
                     <MessageSquare size={12} />
-                    <span class="comment-count">{file.commentCount}</span>
                   </span>
                 {/if}
               </button>
@@ -495,17 +504,13 @@
     color: var(--text-primary);
   }
 
-  /* Comment indicator */
+  /* Comment indicator - must not shrink, file path will truncate instead */
   .comment-indicator {
     display: flex;
     align-items: center;
-    gap: 2px;
     color: var(--text-muted);
-    font-size: 10px;
     flex-shrink: 0;
-  }
-
-  .comment-count {
-    font-family: monospace;
+    margin-left: auto;
+    padding-left: 4px;
   }
 </style>
