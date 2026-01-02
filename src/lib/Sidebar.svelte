@@ -4,7 +4,7 @@
   Shows files changed in the current diff (base..head).
   Files needing review appear above the divider.
   Reviewed files appear below the divider.
-  Review state comes from the review storage, not git index.
+  Review state comes from the shared commentsState store (single source of truth).
 -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
@@ -19,8 +19,7 @@
     Check,
     RotateCcw,
   } from 'lucide-svelte';
-  import { getReview, markReviewed, unmarkReviewed } from './services/review';
-  import { commentsState } from './stores/comments.svelte';
+  import { commentsState, toggleReviewed as toggleReviewedAction } from './stores/comments.svelte';
   import type { FileDiff } from './types';
   import { getFilePath } from './diffUtils';
 
@@ -45,8 +44,6 @@
   let { onFileSelect, selectedFile = null, diffBase = 'HEAD', diffHead = '@' }: Props = $props();
 
   let diffs: FileDiff[] = $state([]);
-  /** Reviewed file paths (loaded from review storage) */
-  let reviewedPaths: string[] = $state([]);
   let loading = $state(true);
 
   // Is this viewing the working tree?
@@ -64,14 +61,14 @@
 
   /**
    * Build file list from diffs with review state.
-   * Uses commentsState for comment counts (reactive) and reviewedPaths for reviewed status.
+   * Uses commentsState for both comment counts and reviewed status (reactive).
    */
   function buildFileList(
     fileDiffs: FileDiff[],
-    reviewed: string[],
+    reviewedPaths: string[],
     comments: typeof commentsState.comments
   ): FileEntry[] {
-    const reviewedSet = new Set(reviewed);
+    const reviewedSet = new Set(reviewedPaths);
 
     // Count comments per file from the shared comments state
     const commentCounts = new Map<string, number>();
@@ -98,27 +95,10 @@
     loading = false;
   }
 
-  // Use commentsState.comments for reactive comment counts
-  let files = $derived(buildFileList(diffs, reviewedPaths, commentsState.comments));
+  // Use commentsState for both comments and reviewed paths (single source of truth)
+  let files = $derived(buildFileList(diffs, commentsState.reviewedPaths, commentsState.comments));
   let needsReview = $derived(files.filter((f) => !f.isReviewed));
   let reviewed = $derived(files.filter((f) => f.isReviewed));
-
-  // Reload review when diff spec changes
-  $effect(() => {
-    // Track diffBase and diffHead to trigger reload
-    const _ = diffBase + diffHead;
-    loadReview();
-  });
-
-  async function loadReview() {
-    try {
-      const review = await getReview(diffBase, diffHead);
-      reviewedPaths = review.reviewed;
-    } catch (e) {
-      console.error('Failed to load review:', e);
-      reviewedPaths = [];
-    }
-  }
 
   function selectFile(file: FileEntry) {
     onFileSelect?.(file.path);
@@ -126,18 +106,7 @@
 
   async function toggleReviewed(event: MouseEvent | KeyboardEvent, file: FileEntry) {
     event.stopPropagation();
-    try {
-      if (file.isReviewed) {
-        await unmarkReviewed(diffBase, diffHead, file.path);
-      } else {
-        await markReviewed(diffBase, diffHead, file.path);
-      }
-      // Reload reviewed paths
-      const review = await getReview(diffBase, diffHead);
-      reviewedPaths = review.reviewed;
-    } catch (e) {
-      console.error('Failed to toggle reviewed:', e);
-    }
+    await toggleReviewedAction(file.path);
   }
 
   function getFileName(path: string): string {
@@ -172,7 +141,6 @@
   }
 
   onMount(() => {
-    loadReview();
     window.addEventListener('keydown', handleKeydown);
   });
 

@@ -1,8 +1,10 @@
 /**
  * Comments Store
  *
- * Manages comment state for the current diff view.
- * Comments are loaded when a diff is selected and persisted via the review API.
+ * Manages comment and review state for the current diff view.
+ * Comments and reviewed paths are loaded when a diff is selected and persisted via the review API.
+ * This is the single source of truth for review data - other components should read from here
+ * rather than making their own API calls.
  */
 
 import type { Comment, Span, NewComment } from '../types';
@@ -11,6 +13,8 @@ import {
   addComment as apiAddComment,
   updateComment as apiUpdateComment,
   deleteComment as apiDeleteComment,
+  markReviewed as apiMarkReviewed,
+  unmarkReviewed as apiUnmarkReviewed,
   exportReviewMarkdown,
 } from '../services/review';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
@@ -22,6 +26,8 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 interface CommentsState {
   /** All comments for the current diff */
   comments: Comment[];
+  /** Paths that have been marked as reviewed */
+  reviewedPaths: string[];
   /** Currently selected file path (for filtering) */
   currentPath: string | null;
   /** Diff refs for API calls */
@@ -33,6 +39,7 @@ interface CommentsState {
 
 export const commentsState: CommentsState = $state({
   comments: [],
+  reviewedPaths: [],
   currentPath: null,
   diffBase: null,
   diffHead: null,
@@ -106,7 +113,8 @@ export function getTotalCommentCount(): number {
 // =============================================================================
 
 /**
- * Load comments for a diff.
+ * Load review data (comments and reviewed paths) for a diff.
+ * This is the single API call for all review data.
  */
 export async function loadComments(base: string, head: string): Promise<void> {
   commentsState.loading = true;
@@ -116,11 +124,46 @@ export async function loadComments(base: string, head: string): Promise<void> {
   try {
     const review = await getReview(base, head);
     commentsState.comments = review.comments;
+    commentsState.reviewedPaths = review.reviewed;
   } catch (e) {
-    console.error('Failed to load comments:', e);
+    console.error('Failed to load review:', e);
     commentsState.comments = [];
+    commentsState.reviewedPaths = [];
   } finally {
     commentsState.loading = false;
+  }
+}
+
+/**
+ * Check if a file path is marked as reviewed.
+ */
+export function isPathReviewed(path: string): boolean {
+  return commentsState.reviewedPaths.includes(path);
+}
+
+/**
+ * Toggle the reviewed status of a file.
+ */
+export async function toggleReviewed(path: string): Promise<boolean> {
+  if (!commentsState.diffBase || !commentsState.diffHead) {
+    console.error('Cannot toggle reviewed: no diff selected');
+    return false;
+  }
+
+  const isCurrentlyReviewed = isPathReviewed(path);
+
+  try {
+    if (isCurrentlyReviewed) {
+      await apiUnmarkReviewed(commentsState.diffBase, commentsState.diffHead, path);
+      commentsState.reviewedPaths = commentsState.reviewedPaths.filter((p) => p !== path);
+    } else {
+      await apiMarkReviewed(commentsState.diffBase, commentsState.diffHead, path);
+      commentsState.reviewedPaths = [...commentsState.reviewedPaths, path];
+    }
+    return true;
+  } catch (e) {
+    console.error('Failed to toggle reviewed:', e);
+    return false;
   }
 }
 
@@ -230,6 +273,7 @@ export async function copyCommentsToClipboard(): Promise<boolean> {
  */
 export function clearComments(): void {
   commentsState.comments = [];
+  commentsState.reviewedPaths = [];
   commentsState.currentPath = null;
   commentsState.diffBase = null;
   commentsState.diffHead = null;

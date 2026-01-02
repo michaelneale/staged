@@ -381,9 +381,36 @@
   }
 
   // Get comments for the current file (used for spine highlights)
-  let currentFileComments = $derived(getCommentsForCurrentFile());
+  // Memoized as a derived to avoid repeated filtering
+  let currentFileComments = $derived.by(() => {
+    if (!commentsState.currentPath) return [];
+    return commentsState.comments.filter((c) => c.path === commentsState.currentPath);
+  });
 
-  function redrawConnectors() {
+  // ==========================================================================
+  // Connector redraw with debouncing
+  // ==========================================================================
+
+  // Debounce flag to coalesce multiple redraw triggers into one
+  let connectorRedrawPending = false;
+
+  /**
+   * Schedule a connector redraw on the next microtask.
+   * Multiple calls within the same tick are coalesced into one redraw.
+   */
+  function scheduleConnectorRedraw() {
+    if (connectorRedrawPending) return;
+    connectorRedrawPending = true;
+    queueMicrotask(() => {
+      connectorRedrawPending = false;
+      redrawConnectorsImpl();
+    });
+  }
+
+  /**
+   * Actual connector redraw implementation.
+   */
+  function redrawConnectorsImpl() {
     if (!connectorSvg || !beforePane || !afterPane || !diff) return;
 
     // Measure actual line height from the first line element in the DOM
@@ -403,6 +430,13 @@
       comments: currentFileComments,
       onCommentClick: handleCommentHighlightClick,
     });
+  }
+
+  /**
+   * Immediate redraw (for scroll handlers where we need sync updates).
+   */
+  function redrawConnectors() {
+    redrawConnectorsImpl();
   }
 
   /**
@@ -457,8 +491,11 @@
     });
   }
 
-  // Redraw connectors and update toolbar when panel size state changes
-  // Use requestAnimationFrame loop during transition for smooth tracking
+  // ==========================================================================
+  // Consolidated connector redraw effects
+  // ==========================================================================
+
+  // Panel size transitions need RAF loop for smooth animation tracking
   $effect(() => {
     const _ = [beforeCollapsed, afterCollapsed, beforeHovered, afterHovered, spaceHeld];
 
@@ -484,51 +521,23 @@
     };
   });
 
-  // Redraw connectors when alignments load or scroll position changes
+  // Single consolidated effect for all other redraw triggers
+  // Uses scheduleConnectorRedraw to debounce multiple triggers in the same tick
   $effect(() => {
-    if (diff && connectorSvg && beforePane) {
-      // Dependencies: activeAlignmentCount triggers redraw as alignments load
-      const _ = [beforePane.scrollTop, activeAlignmentCount];
-      redrawConnectors();
-    }
-  });
+    // Track all dependencies that should trigger a redraw
+    const _ = [
+      activeAlignmentCount, // Alignments loading progressively
+      hoveredRangeIndex, // Hover state changes
+      syntaxThemeVersion, // Theme changes
+      currentFileComments.length, // Comments change (use length to avoid deep comparison)
+      sizeBase, // Font size changes
+    ];
 
-  // Redraw connectors when font size changes
-  $effect(() => {
-    if (sizeBase && diff && connectorSvg && beforePane) {
-      // Wait for DOM to update with new font size
+    if (diff && connectorSvg && beforePane) {
+      // Use RAF for font size and theme changes to ensure DOM has updated
       requestAnimationFrame(() => {
-        redrawConnectors();
+        scheduleConnectorRedraw();
       });
-    }
-  });
-
-  // Redraw connectors when hover state changes
-  $effect(() => {
-    // Dependency on hoveredRangeIndex
-    const _ = hoveredRangeIndex;
-    if (diff && connectorSvg && beforePane) {
-      redrawConnectors();
-    }
-  });
-
-  // Redraw connectors when syntax theme changes (CSS variables update)
-  $effect(() => {
-    const _version = syntaxThemeVersion;
-    if (diff && connectorSvg && beforePane) {
-      // Small delay to ensure CSS variables have been applied
-      requestAnimationFrame(() => {
-        redrawConnectors();
-      });
-    }
-  });
-
-  // Redraw connectors when comments change (to update comment indicators)
-  $effect(() => {
-    // Depend on alignmentsWithComments
-    const _ = alignmentsWithComments;
-    if (diff && connectorSvg && beforePane) {
-      redrawConnectors();
     }
   });
 
