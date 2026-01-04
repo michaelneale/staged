@@ -13,7 +13,6 @@
   } from 'lucide-svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import DiffViewer from './lib/DiffViewer.svelte';
-  import FileViewer from './lib/FileViewer.svelte';
   import { getRepoInfo, getRefs, resolveRef } from './lib/services/git';
   import type { GitRef } from './lib/types';
   import {
@@ -237,11 +236,7 @@
     }
   }
 
-  // Determine if we should use single-file viewer (created/deleted files)
   let currentDiff = $derived(getCurrentDiff());
-  let useSingleFileViewer = $derived(
-    currentDiff !== null && (currentDiff.before === null || currentDiff.after === null)
-  );
 
   /**
    * Detect the default branch (main, master, etc.) from available refs.
@@ -459,17 +454,6 @@
           <p>Error loading diff:</p>
           <p class="error-message">{diffState.error}</p>
         </div>
-      {:else if currentDiff === null}
-        <div class="empty-state">
-          <p>Select a file to view changes</p>
-        </div>
-      {:else if useSingleFileViewer}
-        <FileViewer
-          diff={currentDiff}
-          diffBase={diffSelection.spec.base}
-          diffHead={diffSelection.spec.head}
-          syntaxThemeVersion={preferences.syntaxThemeVersion}
-        />
       {:else}
         <DiffViewer
           diff={currentDiff}
@@ -686,8 +670,7 @@
     flex-direction: column;
   }
 
-  .loading-state,
-  .empty-state {
+  .loading-state {
     display: flex;
     align-items: center;
     justify-content: center;

@@ -205,7 +205,7 @@ export function drawConnectors(
 /**
  * Draw comment highlight lines on the spine.
  * Shows a vertical highlight bar for each commented region, aligned to the right
- * edge to visually connect with the after pane. Highlights are clickable.
+ * edge to visually connect with the after pane.
  *
  * Overlapping comments are stacked in a pyramid style - widest spans on the
  * outside (right edge), narrower spans nested inside (further left).
@@ -224,8 +224,8 @@ function drawCommentHighlights(
   const commentColor = getCssVar('--diff-comment-highlight', 'rgba(88, 166, 255, 0.5)');
   const hoverColor = getCssVar('--diff-comment-highlight', 'rgba(88, 166, 255, 0.8)');
   const highlightWidth = 4;
-  const highlightGap = 2; // Gap between stacked highlights
-  const hitAreaPadding = 6; // Extra padding around each highlight for easier clicking
+  const highlightGap = 2; // Gap between stacked highlights (horizontal)
+  const verticalPadding = 2; // Padding at top/bottom of each bar to separate adjacent spans
 
   // Filter out global comments (0,0 span) and sort by span size (largest first)
   // This ensures wider spans are drawn first (on the right edge)
@@ -264,13 +264,16 @@ function drawCommentHighlights(
     const { span } = comment;
     const offset = commentOffsets.get(comment.id) || 0;
 
-    // Calculate pixel positions
-    const top = span.start * cfg.lineHeight - afterScroll + cfg.verticalOffset;
+    // Calculate pixel positions with padding to visually separate adjacent spans
+    const top = span.start * cfg.lineHeight - afterScroll + cfg.verticalOffset + verticalPadding;
     const bottom =
-      Math.max(span.end, span.start + 1) * cfg.lineHeight - afterScroll + cfg.verticalOffset;
+      Math.max(span.end, span.start + 1) * cfg.lineHeight -
+      afterScroll +
+      cfg.verticalOffset -
+      verticalPadding;
 
-    // Skip if completely out of view
-    if (bottom < clipTop || top > svgHeight) continue;
+    // Skip if completely out of view or too small after padding
+    if (bottom < clipTop || top > svgHeight || bottom <= top) continue;
 
     // X position: start from right edge, offset left for nested comments
     const xPos = svgWidth - highlightWidth - offset * (highlightWidth + highlightGap);
@@ -283,35 +286,28 @@ function drawCommentHighlights(
     rect.setAttribute('height', String(bottom - top));
     rect.setAttribute('fill', commentColor);
     rect.setAttribute('rx', '1'); // Slight rounding
-    group.appendChild(rect);
 
-    // Add hit area for clicking (slightly larger than visible rect)
+    // Make the rect itself clickable
     if (cfg.onCommentClick) {
-      const hitArea = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      hitArea.setAttribute('x', String(xPos - hitAreaPadding));
-      hitArea.setAttribute('y', String(top));
-      hitArea.setAttribute('width', String(highlightWidth + hitAreaPadding * 2));
-      hitArea.setAttribute('height', String(bottom - top));
-      hitArea.setAttribute('fill', 'transparent');
-      hitArea.setAttribute('cursor', 'pointer');
+      rect.setAttribute('cursor', 'pointer');
 
       // Hover effect
-      hitArea.addEventListener('mouseenter', () => {
+      rect.addEventListener('mouseenter', () => {
         rect.setAttribute('fill', hoverColor);
         rect.setAttribute('width', String(highlightWidth + 1)); // Slightly wider on hover
       });
-      hitArea.addEventListener('mouseleave', () => {
+      rect.addEventListener('mouseleave', () => {
         rect.setAttribute('fill', commentColor);
         rect.setAttribute('width', String(highlightWidth));
       });
 
       // Click handler
-      hitArea.addEventListener('click', (e) => {
+      rect.addEventListener('click', (e) => {
         e.stopPropagation();
         cfg.onCommentClick!({ commentId: comment.id, span: comment.span });
       });
-
-      group.appendChild(hitArea);
     }
+
+    group.appendChild(rect);
   }
 }
