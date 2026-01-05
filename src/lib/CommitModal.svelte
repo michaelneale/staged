@@ -117,7 +117,7 @@
     <header class="modal-header">
       <h2>
         <GitCommitHorizontal size={16} />
-        Commit Changes
+        Git Commit
       </h2>
       <button class="close-btn" onclick={onClose}>
         <X size={16} />
@@ -126,12 +126,7 @@
 
     <div class="modal-body">
       <div class="message-section">
-        <label for="commit-message">Commit message</label>
-        <textarea
-          id="commit-message"
-          bind:value={message}
-          placeholder="Describe your changes..."
-          rows="3"
+        <textarea id="commit-message" bind:value={message} placeholder="message..." rows="3"
         ></textarea>
       </div>
 
@@ -268,14 +263,6 @@
 
   .message-section {
     margin-bottom: 20px;
-  }
-
-  .message-section label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: var(--size-sm);
-    font-weight: 500;
-    color: var(--text-primary);
   }
 
   textarea {
