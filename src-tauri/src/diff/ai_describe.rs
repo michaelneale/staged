@@ -3,16 +3,14 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Result of describing a hunk - before and after descriptions
+/// Result of describing a hunk - before and after description in natural language
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HunkDescription {
-    /// Description of what the code did before the change
     pub before: String,
-    /// Description of what the code does after the change
     pub after: String,
 }
 
-/// Common paths where CLI tools might be installed.
+/// Common paths where CLI tools might be installed, needed when running app in packaged form (vs justfile)
 const CLI_SEARCH_PATHS: &[&str] = &[
     "/usr/local/bin",
     "/opt/homebrew/bin",
@@ -20,7 +18,6 @@ const CLI_SEARCH_PATHS: &[&str] = &[
     "/usr/bin",
 ];
 
-/// Which AI CLI tool we found
 #[derive(Debug)]
 enum AiTool {
     Goose(PathBuf),
@@ -69,7 +66,6 @@ fn find_claude_command() -> Option<PathBuf> {
     None
 }
 
-/// Find an available AI CLI tool (goose preferred, claude as fallback)
 fn find_ai_tool() -> Option<AiTool> {
     if let Some(path) = find_goose_command() {
         return Some(AiTool::Goose(path));
@@ -80,7 +76,6 @@ fn find_ai_tool() -> Option<AiTool> {
     None
 }
 
-/// Run the AI tool with the given prompt and return the output
 fn run_ai_tool(tool: &AiTool, prompt: &str) -> Result<String, String> {
     let output = match tool {
         AiTool::Goose(path) => {
@@ -127,9 +122,6 @@ fn run_ai_tool(tool: &AiTool, prompt: &str) -> Result<String, String> {
 
 /// Describes a code change using goose AI (or claude as fallback).
 ///
-/// Takes the before/after content of a hunk and the file path,
-/// calls the AI CLI with a prompt to describe the change.
-/// Returns structured before/after descriptions.
 pub fn describe_hunk(
     file_path: &str,
     before_lines: &[String],
@@ -191,7 +183,6 @@ New code:
     })
 }
 
-/// Extract a field value from the response (e.g., "BEFORE: some text" -> "some text")
 fn extract_field(response: &str, field: &str) -> Option<String> {
     for line in response.lines() {
         let trimmed = line.trim();
@@ -220,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires goose or claude to be installed
+    #[ignore]
     fn test_describe_hunk() {
         let before = vec!["fn old() {}".to_string()];
         let after = vec!["fn new_name() {}".to_string()];

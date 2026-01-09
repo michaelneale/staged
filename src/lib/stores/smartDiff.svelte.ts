@@ -5,16 +5,13 @@ import type { FileDiff } from '../types';
 
 interface CachedDescription {
   description: HunkDescription;
-  // Hash of the before+after content to detect changes
   contentHash: string;
 }
 
-// Simple hash of content for cache invalidation
 function hashContent(beforeLines: string[], afterLines: string[]): string {
   return beforeLines.join('\n') + '|||' + afterLines.join('\n');
 }
 
-// Reactive state
 let enabled = $state(false);
 let loading = $state(false);
 let loadingPath = $state<string | null>(null);
@@ -43,7 +40,6 @@ export const smartDiffState = {
     return cache.has(path);
   },
 
-  // Calculate description for a single file (called when viewing a file)
   async calculateForFile(file: FileDiff): Promise<HunkDescription | null> {
     const filePath = file.after?.path ?? file.before?.path;
     if (!filePath) return null;
@@ -51,7 +47,6 @@ export const smartDiffState = {
     const beforeLines = file.before?.content.type === 'text' ? file.before.content.lines : [];
     const afterLines = file.after?.content.type === 'text' ? file.after.content.lines : [];
 
-    // Get only changed content
     const changedAlignments = file.alignments.filter((a) => a.changed);
     let beforeContent: string[] = [];
     let afterContent: string[] = [];
@@ -61,14 +56,12 @@ export const smartDiffState = {
       afterContent.push(...afterLines.slice(alignment.after.start, alignment.after.end));
     }
 
-    // Check cache
     const contentHash = hashContent(beforeContent, afterContent);
     const cached = cache.get(filePath);
     if (cached && cached.contentHash === contentHash) {
       return cached.description;
     }
 
-    // Calculate new description
     loading = true;
     loadingPath = filePath;
 
@@ -78,7 +71,6 @@ export const smartDiffState = {
       console.log('Before:', result.before);
       console.log('After:', result.after);
 
-      // Cache it
       cache = new Map(cache).set(filePath, { description: result, contentHash });
 
       return result;

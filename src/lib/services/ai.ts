@@ -1,15 +1,14 @@
-// AI description service - calls goose to describe code changes
+// AI description service
 
 import { invoke } from '@tauri-apps/api/core';
 
-/** Structured description of a code change */
 export interface HunkDescription {
   before: string;
   after: string;
 }
 
 /**
- * Describe a code change using goose AI.
+ * Describe a code change
  *
  * @param filePath - Path to the file being changed
  * @param beforeLines - Lines before the change

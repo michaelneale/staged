@@ -175,10 +175,6 @@ fn fetch_pr_branch(
 // AI Commands
 // =============================================================================
 
-/// Describe a code change using goose AI.
-///
-/// Takes the before/after lines of a hunk and the file path.
-/// Calls `goose run` to generate before/after descriptions.
 #[tauri::command]
 async fn describe_hunk(
     file_path: String,
