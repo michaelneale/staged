@@ -1,4 +1,4 @@
-//! AI-powered hunk description using goose.
+//! AI-powered hunk description using goose or claude.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -12,14 +12,20 @@ pub struct HunkDescription {
     pub after: String,
 }
 
-/// Common paths where `goose` might be installed.
-const GOOSE_SEARCH_PATHS: &[&str] = &[
+/// Common paths where CLI tools might be installed.
+const CLI_SEARCH_PATHS: &[&str] = &[
     "/usr/local/bin",
     "/opt/homebrew/bin",
     "/home/linuxbrew/.linuxbrew/bin",
-    // Common user-local paths
     "/usr/bin",
 ];
+
+/// Which AI CLI tool we found
+#[derive(Debug)]
+enum AiTool {
+    Goose(PathBuf),
+    Claude(PathBuf),
+}
 
 /// Find the `goose` CLI executable.
 /// Checks PATH first, then falls back to common installation locations.
@@ -32,7 +38,7 @@ fn find_goose_command() -> Option<PathBuf> {
     }
 
     // Check common installation paths
-    for dir in GOOSE_SEARCH_PATHS {
+    for dir in CLI_SEARCH_PATHS {
         let path = PathBuf::from(dir).join("goose");
         if path.exists() {
             return Some(path);
@@ -42,18 +48,96 @@ fn find_goose_command() -> Option<PathBuf> {
     None
 }
 
-/// Describes a code change using goose AI.
+/// Find the `claude` CLI executable.
+/// Checks PATH first, then falls back to common installation locations.
+fn find_claude_command() -> Option<PathBuf> {
+    // First, check if `claude` is directly available (e.g., already in PATH)
+    if let Ok(output) = Command::new("claude").arg("--version").output() {
+        if output.status.success() {
+            return Some(PathBuf::from("claude"));
+        }
+    }
+
+    // Check common installation paths
+    for dir in CLI_SEARCH_PATHS {
+        let path = PathBuf::from(dir).join("claude");
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+/// Find an available AI CLI tool (goose preferred, claude as fallback)
+fn find_ai_tool() -> Option<AiTool> {
+    if let Some(path) = find_goose_command() {
+        return Some(AiTool::Goose(path));
+    }
+    if let Some(path) = find_claude_command() {
+        return Some(AiTool::Claude(path));
+    }
+    None
+}
+
+/// Run the AI tool with the given prompt and return the output
+fn run_ai_tool(tool: &AiTool, prompt: &str) -> Result<String, String> {
+    let output = match tool {
+        AiTool::Goose(path) => {
+            log::info!("Using goose at: {:?}", path);
+            Command::new(path)
+                .args(["run", "-t", prompt])
+                .output()
+                .map_err(|e| format!("Failed to run goose: {}", e))?
+        }
+        AiTool::Claude(path) => {
+            log::info!("Using claude at: {:?}", path);
+            Command::new(path)
+                .args(["--dangerously-skip-permissions", "-p", prompt])
+                .output()
+                .map_err(|e| format!("Failed to run claude: {}", e))?
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    log::info!("=== AI RESPONSE ===");
+    log::info!("Exit code: {:?}", output.status.code());
+    log::info!("Stdout:\n{}", stdout);
+    if !stderr.is_empty() {
+        log::info!("Stderr:\n{}", stderr);
+    }
+
+    if !output.status.success() {
+        let tool_name = match tool {
+            AiTool::Goose(_) => "goose",
+            AiTool::Claude(_) => "claude",
+        };
+        return Err(format!(
+            "{} exited with code {:?}: {}",
+            tool_name,
+            output.status.code(),
+            stderr
+        ));
+    }
+
+    Ok(stdout)
+}
+
+/// Describes a code change using goose AI (or claude as fallback).
 ///
 /// Takes the before/after content of a hunk and the file path,
-/// calls `goose run` with a prompt to describe the change.
+/// calls the AI CLI with a prompt to describe the change.
 /// Returns structured before/after descriptions.
 pub fn describe_hunk(
     file_path: &str,
     before_lines: &[String],
     after_lines: &[String],
 ) -> Result<HunkDescription, String> {
-    let goose_path = find_goose_command().ok_or_else(|| {
-        "Goose CLI not found. Install it with: brew install goose or see https://github.com/block/goose".to_string()
+    let tool = find_ai_tool().ok_or_else(|| {
+        "No AI CLI found. Install one of:\n           - goose: brew install goose or see https://github.com/block/goose\n           - claude: npm install -g @anthropic-ai/claude-code"
+            .to_string()
     })?;
 
     let before_content = if before_lines.is_empty() {
@@ -88,36 +172,14 @@ New code:
         file_path, before_content, after_content
     );
 
-    log::info!("=== GOOSE DESCRIBE HUNK ===");
+    log::info!("=== AI DESCRIBE HUNK ===");
     log::info!("File: {}", file_path);
-    log::info!("Using goose at: {:?}", goose_path);
     log::info!("Prompt:\n{}", prompt);
 
-    let output = Command::new(&goose_path)
-        .args(["run", "-t", &prompt])
-        .output()
-        .map_err(|e| format!("Failed to run goose: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    log::info!("=== GOOSE RESPONSE ===");
-    log::info!("Exit code: {:?}", output.status.code());
-    log::info!("Stdout:\n{}", stdout);
-    if !stderr.is_empty() {
-        log::info!("Stderr:\n{}", stderr);
-    }
-
-    if !output.status.success() {
-        return Err(format!(
-            "goose exited with code {:?}: {}",
-            output.status.code(),
-            stderr
-        ));
-    }
+    let response = run_ai_tool(&tool, &prompt)?;
 
     // Parse the response - look for BEFORE: and AFTER: lines
-    let response = stdout.trim();
+    let response = response.trim();
     let before_desc = extract_field(response, "BEFORE:")
         .unwrap_or_else(|| "Could not parse before description".to_string());
     let after_desc = extract_field(response, "AFTER:")
@@ -158,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires goose to be installed
+    #[ignore] // Requires goose or claude to be installed
     fn test_describe_hunk() {
         let before = vec!["fn old() {}".to_string()];
         let after = vec!["fn new_name() {}".to_string()];
