@@ -34,7 +34,7 @@
     removeFromRecent,
     type RepoEntry,
   } from './stores/repoState.svelte';
-  import { describeHunk } from './services/ai';
+  import { smartDiffState } from './stores/smartDiff.svelte';
 
   interface Props {
     files: FileDiff[];
@@ -66,10 +66,6 @@
 
   // Copy feedback
   let copiedFeedback = $state(false);
-
-  // Smart diff state - when enabled, calculates descriptions for all files
-  let smartDiffEnabled = $state(false);
-  let smartDiffLoading = $state(false);
 
   // Check if we're viewing working directory changes (can show commit button)
   let isWorkingTree = $derived(diffSelection.spec.head === WORKDIR);
@@ -126,54 +122,13 @@
   }
 
   // Smart diff toggle - when enabled, starts calculating descriptions
-  async function toggleSmartDiff() {
-    smartDiffEnabled = !smartDiffEnabled;
 
-    if (smartDiffEnabled && files.length > 0) {
-      calculateSmartDiffs();
+  // Smart diff toggle
+  function toggleSmartDiff() {
+    smartDiffState.toggle();
+    if (smartDiffState.enabled && files.length > 0) {
+      // View mode toggled - DiffViewer will calculate on demand
     }
-  }
-
-  // Calculate smart diffs for all files
-  async function calculateSmartDiffs() {
-    if (!smartDiffEnabled || files.length === 0) return;
-
-    smartDiffLoading = true;
-
-    for (const file of files) {
-      if (!smartDiffEnabled) break; // Stop if disabled mid-calculation
-
-      const filePath = file.after?.path ?? file.before?.path ?? 'unknown';
-      const beforeLines = file.before?.content.type === 'text' ? file.before.content.lines : [];
-      const afterLines = file.after?.content.type === 'text' ? file.after.content.lines : [];
-
-      const changedAlignments = file.alignments.filter((a) => a.changed);
-
-      let beforeContent: string[] = [];
-      let afterContent: string[] = [];
-
-      for (const alignment of changedAlignments) {
-        const beforeSlice = beforeLines.slice(alignment.before.start, alignment.before.end);
-        const afterSlice = afterLines.slice(alignment.after.start, alignment.after.end);
-        beforeContent.push(...beforeSlice);
-        afterContent.push(...afterSlice);
-      }
-
-      try {
-        console.log('=== SMART DIFF REQUEST ===');
-        console.log('File:', filePath);
-
-        const result = await describeHunk(filePath, beforeContent, afterContent);
-
-        console.log('=== SMART DIFF RESPONSE ===');
-        console.log('File:', filePath);
-        console.log(result);
-      } catch (error) {
-        console.error('Smart diff failed for', filePath, error);
-      }
-    }
-
-    smartDiffLoading = false;
   }
 
   async function handleCopyComments() {
@@ -342,17 +297,17 @@
 
     <button
       class="action-btn smart-diff-btn"
-      class:active={smartDiffEnabled}
-      class:loading={smartDiffLoading}
+      class:active={smartDiffState.enabled}
+      class:loading={smartDiffState.loading}
       onclick={toggleSmartDiff}
-      title={smartDiffEnabled ? 'Disable Smart Diff' : 'Enable Smart Diff'}
+      title={smartDiffState.enabled ? 'Disable Smart Diff' : 'Enable Smart Diff'}
     >
-      {#if smartDiffLoading}
+      {#if smartDiffState.loading}
         <Loader2 size={14} class="spinning" />
       {:else}
         <Sparkles size={14} />
       {/if}
-      <span class="action-label">{smartDiffEnabled ? 'Smart On' : 'Smart Diff'}</span>
+      <span class="action-label">{smartDiffState.enabled ? 'Smart On' : 'Smart Diff'}</span>
     </button>
 
     <div class="comments-section">

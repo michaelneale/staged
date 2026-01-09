@@ -4,8 +4,8 @@ mod themes;
 mod watcher;
 
 use diff::{
-    Comment, DiffId, Edit, GitHubAuthStatus, GitRef, NewComment, NewEdit, PRFetchResult,
-    PullRequest, RepoInfo, Review,
+    Comment, DiffId, Edit, GitHubAuthStatus, GitRef, HunkDescription, NewComment, NewEdit,
+    PRFetchResult, PullRequest, RepoInfo, Review,
 };
 use refresh::RefreshController;
 use std::path::PathBuf;
@@ -178,13 +178,13 @@ fn fetch_pr_branch(
 /// Describe a code change using goose AI.
 ///
 /// Takes the before/after lines of a hunk and the file path.
-/// Calls `goose run` to generate a description of what changed.
+/// Calls `goose run` to generate before/after descriptions.
 #[tauri::command]
 async fn describe_hunk(
     file_path: String,
     before_lines: Vec<String>,
     after_lines: Vec<String>,
-) -> Result<String, String> {
+) -> Result<HunkDescription, String> {
     // Run in blocking task since it spawns a subprocess
     tokio::task::spawn_blocking(move || {
         diff::describe_hunk(&file_path, &before_lines, &after_lines)

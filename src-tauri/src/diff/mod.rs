@@ -14,7 +14,7 @@ pub mod review;
 pub mod types;
 
 // Re-export types used by lib.rs Tauri commands
-pub use ai_describe::describe_hunk;
+pub use ai_describe::{describe_hunk, HunkDescription};
 pub use git::{
     compute_diff, create_commit, fetch_pr_branch, get_merge_base, get_refs, get_repo_info,
     last_commit_message, open_repo, resolve_ref, GitRef, PRFetchResult, RepoInfo, WORKDIR,

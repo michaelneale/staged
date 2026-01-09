@@ -45,6 +45,8 @@
   } from './diffUtils';
   import { setupKeyboardNav } from './diffKeyboard';
   import { WORKDIR } from './stores/diffSelection.svelte';
+  import { smartDiffState } from './stores/smartDiff.svelte';
+  import SmartDiffView from './SmartDiffView.svelte';
   import CommentEditor from './CommentEditor.svelte';
   import Scrollbar from './Scrollbar.svelte';
 
@@ -1208,7 +1210,9 @@
 </script>
 
 <div class="diff-viewer" bind:this={diffViewerEl}>
-  {#if diff === null}
+  {#if smartDiffState.enabled}
+    <SmartDiffView {diff} />
+  {:else if diff === null}
     <div class="empty-state">
       <p>Select a file to view changes</p>
     </div>
