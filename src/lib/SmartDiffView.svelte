@@ -13,7 +13,7 @@
   let description = $state<{ before: string; after: string } | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
-  let showCode = $state(false);
+  let showCode = $state(true);
 
   let filePath = $derived(diff?.after?.path ?? diff?.before?.path ?? 'Unknown file');
 

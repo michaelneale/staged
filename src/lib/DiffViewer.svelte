@@ -419,7 +419,11 @@
 
   // Initialize renderer when Canvas is available
   $effect(() => {
-    if (connectorCanvas && !connectorRenderer) {
+    if (connectorCanvas) {
+      // Destroy old renderer if canvas changed
+      if (connectorRenderer) {
+        connectorRenderer.destroy();
+      }
       connectorRenderer = new ConnectorRendererCanvas(connectorCanvas, {
         onCommentClick: handleCommentHighlightClick,
       });

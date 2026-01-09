@@ -1,5 +1,6 @@
 //! AI-powered hunk description using goose.
 
+use std::path::PathBuf;
 use std::process::Command;
 
 /// Result of describing a hunk - before and after descriptions
@@ -7,8 +8,38 @@ use std::process::Command;
 pub struct HunkDescription {
     /// Description of what the code did before the change
     pub before: String,
-    /// Description of what the code does after the change  
+    /// Description of what the code does after the change
     pub after: String,
+}
+
+/// Common paths where `goose` might be installed.
+const GOOSE_SEARCH_PATHS: &[&str] = &[
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    "/home/linuxbrew/.linuxbrew/bin",
+    // Common user-local paths
+    "/usr/bin",
+];
+
+/// Find the `goose` CLI executable.
+/// Checks PATH first, then falls back to common installation locations.
+fn find_goose_command() -> Option<PathBuf> {
+    // First, check if `goose` is directly available (e.g., already in PATH)
+    if let Ok(output) = Command::new("goose").arg("--version").output() {
+        if output.status.success() {
+            return Some(PathBuf::from("goose"));
+        }
+    }
+
+    // Check common installation paths
+    for dir in GOOSE_SEARCH_PATHS {
+        let path = PathBuf::from(dir).join("goose");
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    None
 }
 
 /// Describes a code change using goose AI.
@@ -21,6 +52,10 @@ pub fn describe_hunk(
     before_lines: &[String],
     after_lines: &[String],
 ) -> Result<HunkDescription, String> {
+    let goose_path = find_goose_command().ok_or_else(|| {
+        "Goose CLI not found. Install it with: brew install goose or see https://github.com/block/goose".to_string()
+    })?;
+
     let before_content = if before_lines.is_empty() {
         "(empty - new content)".to_string()
     } else {
@@ -55,9 +90,10 @@ New code:
 
     log::info!("=== GOOSE DESCRIBE HUNK ===");
     log::info!("File: {}", file_path);
+    log::info!("Using goose at: {:?}", goose_path);
     log::info!("Prompt:\n{}", prompt);
 
-    let output = Command::new("goose")
+    let output = Command::new(&goose_path)
         .args(["run", "-t", &prompt])
         .output()
         .map_err(|e| format!("Failed to run goose: {}", e))?;
