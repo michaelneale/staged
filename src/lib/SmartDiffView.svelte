@@ -20,7 +20,6 @@
   // Load description when diff changes - check cache first
   $effect(() => {
     if (diff && filePath) {
-      // Check cache first
       const cached = smartDiffState.getDescription(filePath);
       if (cached) {
         description = cached;
@@ -105,8 +104,9 @@
         {#if showCode && beforeLines.length > 0}
           <div class="pane-code">
             {#each beforeLines as line}
-              <div class="code-line">
+              <div class="code-line deleted">
                 <span class="line-num">{line.lineNum}</span>
+                <span class="line-marker">-</span>
                 <span class="line-text">{line.text}</span>
               </div>
             {/each}
@@ -120,8 +120,9 @@
         {#if showCode && afterLines.length > 0}
           <div class="pane-code">
             {#each afterLines as line}
-              <div class="code-line">
+              <div class="code-line added">
                 <span class="line-num">{line.lineNum}</span>
+                <span class="line-marker">+</span>
                 <span class="line-text">{line.text}</span>
               </div>
             {/each}
@@ -266,17 +267,25 @@
 
   .pane-code {
     margin-top: 8px;
-    padding: 8px;
-    background: var(--bg-chrome);
     border-radius: 6px;
     font-family: 'SF Mono', 'Menlo', monospace;
     font-size: var(--size-xs);
     overflow-x: auto;
+    border: 1px solid var(--border-subtle);
   }
 
   .code-line {
     display: flex;
-    line-height: 1.5;
+    line-height: 1.6;
+    padding: 0 8px;
+  }
+
+  .code-line.deleted {
+    background: var(--diff-removed-bg);
+  }
+
+  .code-line.added {
+    background: var(--diff-added-bg);
   }
 
   .line-num {
@@ -285,6 +294,20 @@
     padding-right: 8px;
     text-align: right;
     user-select: none;
+  }
+
+  .line-marker {
+    min-width: 2ch;
+    user-select: none;
+    font-weight: 600;
+  }
+
+  .code-line.deleted .line-marker {
+    color: var(--status-deleted);
+  }
+
+  .code-line.added .line-marker {
+    color: var(--status-added);
   }
 
   .line-text {
